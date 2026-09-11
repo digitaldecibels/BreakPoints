@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-breakpoint-sources"
+description = "Enables the breakpoint_sources command without any pre-configured scope."
+commands.allow = ["breakpoint_sources"]
+
+[[permission]]
+identifier = "deny-breakpoint-sources"
+description = "Denies the breakpoint_sources command without any pre-configured scope."
+commands.deny = ["breakpoint_sources"]

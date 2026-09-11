@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+  body { margin:0; background:#0E0E10; }
+  @keyframes bp-pulse { 0%,100% { opacity:0.4 } 50% { opacity:1 } }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important } }
+  a { color:#4C8DFF; text-decoration:none }
+  a:hover { color:#7FADFF }
+</style>
+</helmet>
+
+<section style="display:flex; flex-direction:column; gap:56px; padding:48px; font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Helvetica,sans-serif; color:#E8E8EA;">
+
+  <!-- 1a MAIN WINDOW -->
+  <div id="1a" style="display:flex; flex-direction:column; gap:12px;">
+    <div style="display:flex; align-items:baseline; gap:10px;">
+      <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; border:1px solid #323236; padding:2px 6px;">1a</span>
+      <span style="font-size:13px; color:#8A8A92;">Main window — project-driven, zoom-to-fit on, Laptop label hovered</span>
+    </div>
+
+    <div style="width:1240px; background:#141416; border:1px solid #323236;">
+      <!-- toolbar -->
+      <div style="height:56px; padding:0 12px; display:flex; align-items:center; gap:8px; background:#1C1C1F; border-bottom:1px solid #323236;">
+        <div style="position:relative; display:flex; align-items:center; gap:8px; height:28px; padding:0 10px 0 12px; background:#252529; border:1px solid #323236;">
+          <div style="position:absolute; left:0; top:0; bottom:0; width:2px; background:#4C8DFF;"></div>
+          <span style="font-size:12px; color:#4C8DFF;">◫</span>
+          <span style="font-size:12px; font-weight:500;">Bucknell</span>
+          <span style="font-size:9px; color:#8A8A92;">▾</span>
+        </div>
+        <div style="flex:1; min-width:0; display:flex; align-items:center; height:28px; padding:0 10px; background:#252529; border:1px solid #323236;">
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:13px; color:#E8E8EA; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">https://bucknell.lndo.site</span>
+        </div>
+        <button style="height:28px; width:28px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:12px; cursor:pointer;">→</button>
+        <button style="height:28px; width:28px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:12px; cursor:pointer;">↻</button>
+        <div style="width:1px; height:20px; background:#323236; margin:0 4px;"></div>
+        <button style="height:28px; padding:0 12px; background:#252529; border:1px solid #4C8DFF; color:#4C8DFF; font-size:12px; font-weight:500; cursor:pointer;">Fit</button>
+        <button style="height:28px; padding:0 12px; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:12px; font-weight:500; cursor:pointer;">Sync</button>
+        <div style="width:14px; display:grid; place-items:center;">
+          <div style="width:6px; height:6px; border-radius:50%; background:#4C8DFF; animation:bp-pulse 2s ease-in-out infinite;"></div>
+        </div>
+        <button style="height:28px; width:28px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:13px; cursor:pointer;">⚙</button>
+      </div>
+      <!-- scroll strip -->
+      <div style="height:12px; padding:4px 0; background:#141416; border-bottom:1px solid #323236;">
+        <div style="height:4px; width:78%; background:#323236;"></div>
+      </div>
+      <!-- label strip + canvas -->
+      <div style="padding:16px 24px 24px; overflow:hidden;">
+        <div style="display:flex; gap:24px; width:1400px;">
+          <div style="width:269px;">
+            <div style="height:32px; display:flex; flex-direction:column; justify-content:center;">
+              <div style="font-size:12px; font-weight:590; line-height:15px;">Mobile</div>
+              <div style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; line-height:13px;">sm · 640×850 · 42%</div>
+            </div>
+            <div style="margin-top:16px; height:357px; border:1px solid #323236; background:#1C1C1F; display:grid; place-items:center; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);">
+              <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; color:#5C5C63;">webview</span>
+            </div>
+          </div>
+          <div style="width:323px;">
+            <div style="height:32px; display:flex; flex-direction:column; justify-content:center;">
+              <div style="font-size:12px; font-weight:590; line-height:15px;">Tablet</div>
+              <div style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; line-height:13px;">md · 768×1020 · 42%</div>
+            </div>
+            <div style="margin-top:16px; height:428px; border:1px solid #323236; background:#1C1C1F; display:grid; place-items:center; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);">
+              <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; color:#5C5C63;">webview</span>
+            </div>
+          </div>
+          <div style="width:430px;">
+            <div style="height:32px; display:flex; align-items:center; justify-content:space-between;">
+              <div>
+                <div style="font-size:12px; font-weight:590; line-height:15px;">Laptop</div>
+                <div style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; line-height:13px;">lg · 1024×770 · 42%</div>
+              </div>
+              <div style="display:flex; gap:4px;">
+                <button aria-label="Reload this panel" style="width:20px; height:20px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:10px; cursor:pointer;">↻</button>
+                <button aria-label="Screenshot this panel" style="width:20px; height:20px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:10px; cursor:pointer;">◻</button>
+              </div>
+            </div>
+            <div style="margin-top:16px; height:323px; border:1px solid #323236; background:#1C1C1F; display:grid; place-items:center; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);">
+              <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; color:#5C5C63;">webview</span>
+            </div>
+          </div>
+          <div style="width:538px;">
+            <div style="height:32px; display:flex; flex-direction:column; justify-content:center;">
+              <div style="font-size:12px; font-weight:590; line-height:15px;">Desktop</div>
+              <div style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; line-height:13px;">xl · 1280×800 · 42%</div>
+            </div>
+            <div style="margin-top:16px; height:336px; border:1px solid #323236; background:#1C1C1F; display:grid; place-items:center; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);">
+              <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; color:#5C5C63;">webview</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1b SCAN SHEET -->
+  <div id="1b" style="display:flex; flex-direction:column; gap:12px;">
+    <div style="display:flex; align-items:baseline; gap:10px;">
+      <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; border:1px solid #323236; padding:2px 6px;">1b</span>
+      <span style="font-size:13px; color:#8A8A92;">Scan sheet over dimmed canvas — detectors finished, one parse failure</span>
+    </div>
+
+    <div style="position:relative; width:1240px; height:640px; background:#141416; border:1px solid #323236; overflow:hidden;">
+      <div style="height:56px; padding:0 12px; display:flex; align-items:center; gap:8px; background:#1C1C1F; border-bottom:1px solid #323236;">
+        <div style="position:relative; display:flex; align-items:center; gap:8px; height:28px; padding:0 10px 0 12px; background:#252529; border:1px solid #323236;">
+          <div style="position:absolute; left:0; top:0; bottom:0; width:2px; background:#4C8DFF;"></div>
+          <span style="font-size:12px; color:#4C8DFF;">◫</span>
+          <span style="font-size:12px; font-weight:500;">Bucknell</span>
+          <span style="font-size:9px; color:#8A8A92;">▾</span>
+        </div>
+        <div style="flex:1; min-width:0; display:flex; align-items:center; height:28px; padding:0 10px; background:#252529; border:1px solid #323236;">
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:13px; color:#8A8A92;">https://bucknell.lndo.site</span>
+        </div>
+        <button style="height:28px; padding:0 12px; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:12px; font-weight:500;">Fit</button>
+        <button style="height:28px; width:28px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:13px;">⚙</button>
+      </div>
+      <div style="padding:16px 24px; display:flex; gap:24px;">
+        <div style="width:269px; height:357px; border:1px solid #323236; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);"></div>
+        <div style="width:323px; height:428px; border:1px solid #323236; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);"></div>
+        <div style="width:430px; height:323px; border:1px solid #323236; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);"></div>
+      </div>
+      <div style="position:absolute; inset:0; background:rgba(10,10,11,0.66);"></div>
+
+      <div style="position:absolute; left:50%; top:40px; transform:translateX(-50%); width:560px; background:#1C1C1F; border:1px solid #323236; border-radius:8px; padding:24px;">
+        <div style="font-size:15px; font-weight:600; letter-spacing:-0.01em;">Scanning bucknell</div>
+
+        <div style="margin-top:20px; display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; color:#4FB477; width:12px;">✓</span>
+            <span style="font-size:13px; flex:1;">Tailwind CSS v3</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">tailwind.config.js</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; color:#4FB477; width:12px;">✓</span>
+            <span style="font-size:13px; flex:1;">5 configured breakpoints</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; color:#4FB477; width:12px;">✓</span>
+            <span style="font-size:13px; flex:1;">12 CSS media queries</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">14 files</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; color:#4FB477; width:12px;">✓</span>
+            <span style="font-size:13px; flex:1;">Lando</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">.lando.yml</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; color:#4FB477; width:12px;">✓</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; flex:1; color:#E8E8EA;">https://bucknell.lndo.site</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">responding</span>
+          </div>
+          <div style="display:flex; align-items:flex-start; gap:10px;">
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; color:#E0A030; width:12px;">⚠</span>
+            <div style="flex:1;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:13px; color:#8A8A92;">Could not parse _breakpoints.scss</span>
+                <span style="font-size:12px; color:#4C8DFF; cursor:pointer;">why?</span>
+              </div>
+              <div style="margin-top:6px; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; line-height:16px; color:#5C5C63;">line 14: unexpected token "@each"<br>line 22: variable $bp-map not resolved</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="height:1px; background:#323236; margin:20px 0;"></div>
+
+        <div style="font-size:12px; font-weight:500; color:#8A8A92;">Recommended testing environment</div>
+        <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#4C8DFF; display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;">✓</div>
+            <span style="font-size:13px; width:80px;">Mobile</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:110px; text-align:right; color:#E8E8EA;">640 × 850</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63; margin-left:auto;">sm</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#4C8DFF; display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;">✓</div>
+            <span style="font-size:13px; width:80px;">Tablet</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:110px; text-align:right; color:#E8E8EA;">768 × 1020</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63; margin-left:auto;">md</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#4C8DFF; display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;">✓</div>
+            <span style="font-size:13px; width:80px;">Laptop</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:110px; text-align:right; color:#E8E8EA;">1024 × 770</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63; margin-left:auto;">lg</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#4C8DFF; display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;">✓</div>
+            <span style="font-size:13px; width:80px;">Desktop</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:110px; text-align:right; color:#E8E8EA;">1280 × 800</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63; margin-left:auto;">xl</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#4C8DFF; display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;">✓</div>
+            <span style="font-size:13px; width:80px;">Wide</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:110px; text-align:right; color:#E8E8EA;">1536 × 960</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63; margin-left:auto;">2xl</span>
+          </div>
+        </div>
+
+        <div style="margin-top:20px; font-size:12px; font-weight:500; color:#8A8A92;">Also found in your CSS</div>
+        <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#252529; border:1px solid #323236;"></div>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:80px;">900 px</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">used in 3 files</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#252529; border:1px solid #323236;"></div>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:80px;">1100 px</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">used in 1 file</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#252529; border:1px solid #323236;"></div>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:80px;">1440 px</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">used in 6 files</span>
+          </div>
+        </div>
+
+        <div style="margin-top:24px; display:flex; align-items:center; justify-content:space-between;">
+          <span style="font-size:12px; color:#4C8DFF; cursor:pointer;">View log</span>
+          <div style="display:flex; gap:8px;">
+            <button style="height:28px; padding:0 14px; background:#252529; border:1px solid #323236; color:#E8E8EA; font-size:12px; font-weight:500; cursor:pointer;">Customize</button>
+            <button style="height:28px; padding:0 14px; background:#4C8DFF; border:1px solid #4C8DFF; color:#0E1520; font-size:12px; font-weight:500; cursor:pointer;">Use these</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1c SETTINGS -->
+  <div id="1c" style="display:flex; flex-direction:column; gap:12px;">
+    <div style="display:flex; align-items:baseline; gap:10px;">
+      <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; border:1px solid #323236; padding:2px 6px;">1c</span>
+      <span style="font-size:13px; color:#8A8A92;">Settings sheet — Viewports tab, new row in edit state</span>
+    </div>
+
+    <div style="position:relative; width:1240px; height:560px; background:#141416; border:1px solid #323236; overflow:hidden;">
+      <div style="padding:16px 24px; display:flex; gap:24px;">
+        <div style="width:269px; height:357px; border:1px solid #323236; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);"></div>
+        <div style="width:323px; height:428px; border:1px solid #323236; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);"></div>
+        <div style="width:430px; height:323px; border:1px solid #323236; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);"></div>
+      </div>
+      <div style="position:absolute; inset:0; background:rgba(10,10,11,0.66);"></div>
+
+      <div style="position:absolute; left:50%; top:40px; transform:translateX(-50%); width:640px; background:#1C1C1F; border:1px solid #323236; border-radius:8px; display:flex; overflow:hidden;">
+        <div style="width:160px; padding:20px 0; border-right:1px solid #323236; display:flex; flex-direction:column;">
+          <div style="padding:8px 16px; font-size:12px; font-weight:500; color:#E8E8EA; background:#252529; border-left:2px solid #4C8DFF;">Viewports</div>
+          <div style="padding:8px 18px; font-size:12px; color:#8A8A92;">Project</div>
+          <div style="padding:8px 18px; font-size:12px; color:#8A8A92;">Agent bridge</div>
+          <div style="padding:8px 18px; font-size:12px; color:#8A8A92;">About</div>
+        </div>
+        <div style="flex:1; padding:20px;">
+          <div style="font-size:15px; font-weight:600; letter-spacing:-0.01em;">Viewports</div>
+          <div style="margin-top:4px; font-size:13px; color:#8A8A92;">Drag to reorder. Order sets the canvas order.</div>
+
+          <div style="margin-top:16px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="width:12px; color:#5C5C63; font-size:12px; cursor:grab;">⠿</span>
+              <div style="flex:1; height:26px; padding:0 8px; display:flex; align-items:center; background:#252529; border:1px solid #323236; font-size:12px;">Mobile</div>
+              <div style="width:64px; height:26px; padding:0 8px; display:flex; align-items:center; justify-content:flex-end; background:#252529; border:1px solid #323236; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px;">640</div>
+              <div style="width:64px; height:26px; padding:0 8px; display:flex; align-items:center; justify-content:flex-end; background:#252529; border:1px solid #323236; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px;">850</div>
+              <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63; width:56px; text-align:center; border:1px solid #323236; padding:3px 0;">sm</span>
+              <button aria-label="Remove Mobile" style="width:20px; height:20px; background:transparent; border:0; color:#5C5C63; font-size:11px; cursor:pointer;">✕</button>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="width:12px; color:#5C5C63; font-size:12px; cursor:grab;">⠿</span>
+              <div style="flex:1; height:26px; padding:0 8px; display:flex; align-items:center; background:#252529; border:1px solid #323236; font-size:12px;">Tablet</div>
+              <div style="width:64px; height:26px; padding:0 8px; display:flex; align-items:center; justify-content:flex-end; background:#252529; border:1px solid #323236; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px;">768</div>
+              <div style="width:64px; height:26px; padding:0 8px; display:flex; align-items:center; justify-content:flex-end; background:#252529; border:1px solid #323236; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px;">1020</div>
+              <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63; width:56px; text-align:center; border:1px solid #323236; padding:3px 0;">md</span>
+              <button aria-label="Remove Tablet" style="width:20px; height:20px; background:transparent; border:0; color:#5C5C63; font-size:11px; cursor:pointer;">✕</button>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="width:12px; color:#5C5C63; font-size:12px; cursor:grab;">⠿</span>
+              <div style="flex:1; height:26px; padding:0 8px; display:flex; align-items:center; background:#252529; border:1px solid #323236; font-size:12px;">Laptop</div>
+              <div style="width:64px; height:26px; padding:0 8px; display:flex; align-items:center; justify-content:flex-end; background:#252529; border:1px solid #323236; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px;">1024</div>
+              <div style="width:64px; height:26px; padding:0 8px; display:flex; align-items:center; justify-content:flex-end; background:#252529; border:1px solid #323236; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px;">770</div>
+              <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63; width:56px; text-align:center; border:1px solid #323236; padding:3px 0;">lg</span>
+              <button aria-label="Remove Laptop" style="width:20px; height:20px; background:transparent; border:0; color:#5C5C63; font-size:11px; cursor:pointer;">✕</button>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="width:12px; color:#5C5C63; font-size:12px; cursor:grab;">⠿</span>
+              <div style="flex:1; height:26px; padding:0 8px; display:flex; align-items:center; background:#252529; border:1px solid #4C8DFF; font-size:12px; color:#8A8A92;">Untitled<span style="width:1px; height:13px; background:#4C8DFF; margin-left:1px;"></span></div>
+              <div style="width:64px; height:26px; padding:0 8px; display:flex; align-items:center; justify-content:flex-end; background:#252529; border:1px solid #323236; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; color:#5C5C63;">—</div>
+              <div style="width:64px; height:26px; padding:0 8px; display:flex; align-items:center; justify-content:flex-end; background:#252529; border:1px solid #323236; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; color:#5C5C63;">—</div>
+              <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63; width:56px; text-align:center; border:1px solid #323236; padding:3px 0;">custom</span>
+              <button aria-label="Remove row" style="width:20px; height:20px; background:transparent; border:0; color:#5C5C63; font-size:11px; cursor:pointer;">✕</button>
+            </div>
+          </div>
+
+          <div style="margin-top:12px;">
+            <button style="height:26px; padding:0 10px; background:#252529; border:1px solid #323236; color:#E8E8EA; font-size:12px; font-weight:500; cursor:pointer;">Add viewport</button>
+          </div>
+
+          <div style="height:1px; background:#323236; margin:20px 0 12px;"></div>
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:12px; color:#4C8DFF; cursor:pointer;">Reset to detected values</span>
+            <div style="display:flex; gap:8px;">
+              <button style="height:28px; padding:0 14px; background:#252529; border:1px solid #323236; color:#E8E8EA; font-size:12px; font-weight:500; cursor:pointer;">Cancel</button>
+              <button style="height:28px; padding:0 14px; background:#4C8DFF; border:1px solid #4C8DFF; color:#0E1520; font-size:12px; font-weight:500; cursor:pointer;">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1d FIRST LAUNCH -->
+  <div id="1d" style="display:flex; flex-direction:column; gap:12px;">
+    <div style="display:flex; align-items:baseline; gap:10px;">
+      <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; border:1px solid #323236; padding:2px 6px;">1d</span>
+      <span style="font-size:13px; color:#8A8A92;">First launch — no project, no bridge</span>
+    </div>
+
+    <div style="width:1240px; height:520px; background:#141416; border:1px solid #323236; display:flex; flex-direction:column;">
+      <div style="height:56px; padding:0 12px; display:flex; align-items:center; gap:8px; background:#1C1C1F; border-bottom:1px solid #323236;">
+        <div style="display:flex; align-items:center; gap:8px; height:28px; padding:0 10px; background:#252529; border:1px solid #323236;">
+          <span style="font-size:12px; font-weight:500; color:#8A8A92;">Default</span>
+          <span style="font-size:9px; color:#8A8A92;">▾</span>
+        </div>
+        <div style="flex:1; min-width:0; display:flex; align-items:center; height:28px; padding:0 10px; background:#252529; border:1px solid #323236;">
+          <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:13px; color:#5C5C63;">Enter a URL</span>
+        </div>
+        <button style="height:28px; width:28px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#5C5C63; font-size:12px;">→</button>
+        <button style="height:28px; width:28px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#5C5C63; font-size:12px;">↻</button>
+        <div style="width:1px; height:20px; background:#323236; margin:0 4px;"></div>
+        <button style="height:28px; padding:0 12px; background:#252529; border:1px solid #323236; color:#5C5C63; font-size:12px; font-weight:500;">Fit</button>
+        <button style="height:28px; padding:0 12px; background:#252529; border:1px solid #323236; color:#5C5C63; font-size:12px; font-weight:500;">Sync</button>
+        <button style="height:28px; width:28px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:13px;">⚙</button>
+      </div>
+      <div style="flex:1; display:grid; place-items:center;">
+        <div style="width:400px; padding:40px 24px; border:1px dashed #323236; border-radius:8px; text-align:center;">
+          <div style="font-size:15px; font-weight:600; letter-spacing:-0.01em;">Drop a project folder to get started</div>
+          <div style="margin-top:16px; display:flex; justify-content:center;">
+            <button style="height:28px; padding:0 14px; background:#4C8DFF; border:1px solid #4C8DFF; color:#0E1520; font-size:12px; font-weight:500; cursor:pointer;">Open project</button>
+          </div>
+          <div style="margin-top:14px; font-size:12px; color:#5C5C63;">or just <span style="color:#4C8DFF; cursor:pointer;">test a URL</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1e FAILURE STATES -->
+  <div id="1e" style="display:flex; flex-direction:column; gap:12px;">
+    <div style="display:flex; align-items:baseline; gap:10px;">
+      <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; border:1px solid #323236; padding:2px 6px;">1e</span>
+      <span style="font-size:13px; color:#8A8A92;">Dev URL not responding, one panel failed, nothing detected</span>
+    </div>
+
+    <div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
+      <div style="width:760px; background:#141416; border:1px solid #323236;">
+        <div style="height:56px; padding:0 12px; display:flex; align-items:center; gap:8px; background:#1C1C1F; border-bottom:1px solid #323236;">
+          <div style="position:relative; display:flex; align-items:center; gap:8px; height:28px; padding:0 10px 0 12px; background:#252529; border:1px solid #323236;">
+            <div style="position:absolute; left:0; top:0; bottom:0; width:2px; background:#4C8DFF;"></div>
+            <span style="font-size:12px; color:#4C8DFF;">◫</span>
+            <span style="font-size:12px; font-weight:500;">Bucknell</span>
+            <span style="font-size:9px; color:#8A8A92;">▾</span>
+          </div>
+          <div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px; height:28px; padding:0 10px; background:#252529; border:1px solid #323236;">
+            <div style="width:6px; height:6px; border-radius:50%; background:#E0A030; flex:none;"></div>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">https://bucknell.lndo.site</span>
+            <span style="font-size:12px; color:#8A8A92; flex:none;">not responding</span>
+          </div>
+          <button style="height:28px; width:28px; display:grid; place-items:center; background:#252529; border:1px solid #323236; color:#8A8A92; font-size:12px;">↻</button>
+        </div>
+        <div style="height:12px; padding:4px 0; border-bottom:1px solid #323236;">
+          <div style="height:4px; width:60%; background:#323236;"></div>
+        </div>
+        <div style="padding:16px 24px 24px; overflow:hidden;">
+          <div style="display:flex; gap:24px;">
+            <div style="width:269px;">
+              <div style="height:32px; display:flex; flex-direction:column; justify-content:center;">
+                <div style="font-size:12px; font-weight:590; line-height:15px;">Mobile</div>
+                <div style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; line-height:13px;">sm · 640×850 · 42%</div>
+              </div>
+              <div style="margin-top:16px; height:357px; border:1px solid #323236; display:grid; place-items:center; background-image:repeating-linear-gradient(135deg,#1C1C1F 0 6px,#202024 6px 12px);">
+                <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; color:#5C5C63;">webview</span>
+              </div>
+            </div>
+            <div style="width:323px;">
+              <div style="height:32px; display:flex; flex-direction:column; justify-content:center;">
+                <div style="font-size:12px; font-weight:590; line-height:15px;">Tablet</div>
+                <div style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#8A8A92; line-height:13px;">md · 768×1020 · 42%</div>
+              </div>
+              <div style="margin-top:16px; height:428px; border:1px solid #323236; background:#1C1C1F; display:grid; place-items:center; text-align:center; padding:0 24px;">
+                <div>
+                  <div style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; color:#5C5C63;">Failed to load · 502</div>
+                  <div style="margin-top:6px; font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">768 × 1020 kept</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="width:560px; background:#1C1C1F; border:1px solid #323236; border-radius:8px; padding:24px;">
+        <div style="font-size:15px; font-weight:600; letter-spacing:-0.01em;">No framework config found.</div>
+        <div style="margin-top:6px; font-size:13px; color:#8A8A92;">Break/Points read 9 stylesheets and found these widths in your media queries.</div>
+        <div style="margin-top:16px; display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#4C8DFF; display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;">✓</div>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:80px;">720 px</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">used in 4 files</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#4C8DFF; display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;">✓</div>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:80px;">1024 px</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">used in 7 files</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:14px; height:14px; background:#252529; border:1px solid #323236;"></div>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:12px; width:80px;">1360 px</span>
+            <span style="font-family:ui-monospace,'SF Mono',Menlo,monospace; font-size:10px; letter-spacing:0.02em; color:#5C5C63;">used in 1 file</span>
+          </div>
+        </div>
+        <div style="height:1px; background:#323236; margin:20px 0;"></div>
+        <div style="font-size:13px; color:#8A8A92;">Or start with standard device sizes.</div>
+        <div style="margin-top:16px; display:flex; align-items:center; justify-content:space-between;">
+          <span style="font-size:12px; color:#4C8DFF; cursor:pointer;">View log</span>
+          <div style="display:flex; gap:8px;">
+            <button style="height:28px; padding:0 14px; background:#252529; border:1px solid #323236; color:#E8E8EA; font-size:12px; font-weight:500; cursor:pointer;">Standard sizes</button>
+            <button style="height:28px; padding:0 14px; background:#4C8DFF; border:1px solid #4C8DFF; color:#0E1520; font-size:12px; font-weight:500; cursor:pointer;">Use these</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+</x-dc>
+</body>
+</html>

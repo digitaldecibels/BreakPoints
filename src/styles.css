@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+/* Every colour, size and spacing value in the app is declared here and nowhere
+   else. A literal colour in a template is a bug. */
+@theme {
+  --color-bg: #141416;
+  --color-chrome: #1c1c1f;
+  --color-chrome-raised: #252529;
+  --color-line: #323236;
+  --color-text: #e8e8ea;
+  --color-text-dim: #8a8a92;
+  --color-text-faint: #5c5c63;
+  --color-accent: #4c8dff;
+  --color-accent-ink: #0e1520;
+  --color-warn: #e0a030;
+  --color-error: #e0574a;
+  --color-ok: #4fb477;
+  --color-scrim: rgba(10, 10, 11, 0.66);
+
+  --font-sans: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, monospace;
+
+  --spacing: 4px;
+  --radius-sheet: 8px;
+}
+
+/* The chrome webview fills the window and the panels are native webviews
+   composited on top of it, so the body paints the canvas background. */
+/* `clip`, not `hidden`. A hidden box is still a scroll container, so anything
+   the chrome draws off to the right of the window (a failed panel keeps its
+   full width) makes the whole document scrollable in a way nothing shows and
+   nothing resets. `clip` creates no scroll container at all. */
+html,
+body {
+  height: 100%;
+  overflow: clip;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  cursor: default;
+  user-select: none;
+}
+
+input {
+  user-select: text;
+}
+
+/* Focus rings are 2px accent on every control, per the accessibility floor. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* WebKit's own scrollbars are the wrong furniture for an instrument. The
+   horizontal scroll strip draws its own thumb. */
+::-webkit-scrollbar {
+  height: 12px;
+  width: 0;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 2px;
+  border: 4px solid transparent;
+  background-clip: content-box;
+}
+
+/* The two pieces of motion that a utility class cannot express. */
+@keyframes bp-row-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bp-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The indeterminate bar under the toolbar. A panel is a webview we do not
+   control, so there is no real progress to report; this says "something is
+   happening" and nothing more, which is the honest amount. */
+@keyframes bp-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+@keyframes bp-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.bp-row-in {
+  animation: bp-row-in 120ms ease-out both;
+}
+
+.bp-sheet-in {
+  animation: bp-sheet-in 160ms ease-out both;
+}
+
+.bp-pulse {
+  animation: bp-pulse 2s ease-in-out infinite;
+}
+
+.bp-progress {
+  animation: bp-progress 1.1s ease-in-out infinite;
+}
+
+/* Alpine sets x-cloak until it has taken over the markup. */
+[x-cloak] {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Drop the stagger and the pulse, keep the fades. */
+  .bp-row-in {
+    animation-delay: 0ms !important;
+  }
+  .bp-pulse {
+    animation: none;
+    opacity: 1;
+  }
+
+  /* Still say that something is loading, just without the movement. */
+  .bp-progress {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-inspect-chrome"
+description = "Enables the inspect_chrome command without any pre-configured scope."
+commands.allow = ["inspect_chrome"]
+
+[[permission]]
+identifier = "deny-inspect-chrome"
+description = "Denies the inspect_chrome command without any pre-configured scope."
+commands.deny = ["inspect_chrome"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-scroll-sync"
+description = "Enables the set_scroll_sync command without any pre-configured scope."
+commands.allow = ["set_scroll_sync"]
+
+[[permission]]
+identifier = "deny-set-scroll-sync"
+description = "Denies the set_scroll_sync command without any pre-configured scope."
+commands.deny = ["set_scroll_sync"]

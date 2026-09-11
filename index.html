@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Break/Points</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div x-data x-cloak class="h-full w-full overflow-clip">
+      <!-- ================= Toolbar ================= -->
+      <header
+        class="relative flex h-14 items-center gap-2 border-b border-line bg-chrome px-3"
+        x-data="toolbar"
+      >
+        <!-- Loading. A panel is somebody else's page in a webview we do not
+             control, so there is no real progress to report and this only says
+             that something is happening. It hangs off the toolbar rather than
+             sitting in the canvas, because a panel composites on top of the
+             chrome and would hide it. -->
+        <div
+          x-show="$store.bp.loadingCount"
+          class="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-clip"
+          aria-hidden="true"
+        >
+          <div class="bp-progress h-full w-1/4 bg-accent"></div>
+        </div>
+        <span class="sr-only" role="status" x-text="$store.bp.loadingCount ? `Loading ${$store.bp.loadingCount} of ${$store.bp.panels.length} panels` : ''"></span>
+
+        <!-- Everything in the toolbar is one centred group with a ceiling on
+             its width. The window is often the full width of a very wide
+             display, and a toolbar that stretches to fill it puts the buttons
+             a long way from wherever you are looking. Below the ceiling this
+             behaves exactly as a full-width toolbar does. -->
+        <div class="mx-auto flex w-full max-w-[1180px] items-center gap-2">
+        <!-- Project chip. The accent left edge is the whole visual signal
+             that Break/Points is reading your code. -->
+        <button
+          type="button"
+          class="relative flex h-7 shrink-0 items-center gap-2 rounded-sm border border-line bg-chrome-raised pl-3 pr-2.5 text-[12px] font-medium"
+          :class="$store.bp.project ? 'text-text' : 'text-text-dim'"
+          @click="$store.bp.openSettings()"
+          :aria-label="$store.bp.project ? `Project ${$store.bp.projectName}` : 'No project. Open settings'"
+        >
+          <span
+            x-show="$store.bp.projectDriven"
+            class="absolute inset-y-0 left-0 w-0.5 bg-accent"
+            aria-hidden="true"
+          ></span>
+          <span
+            x-show="$store.bp.project"
+            class="h-3 w-3 text-accent"
+            x-icon="'doc'"
+            @click.stop="$store.bp.projectDriven && openProjectFile()"
+            :title="$store.bp.projectDriven ? 'Open breakpoints.md' : ''"
+          ></span>
+          <span x-text="$store.bp.projectName ?? profileName"></span>
+          <span class="h-2.5 w-2.5 text-text-dim" x-icon="'caret'"></span>
+        </button>
+
+        <!-- URL field. It holds a URL, so it is mono. -->
+        <div class="relative flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm border border-line bg-chrome-raised px-2.5">
+          <span
+            x-show="$store.bp.urlStatus === 'notResponding'"
+            class="h-1.5 w-1.5 shrink-0 rounded-full bg-warn"
+            aria-hidden="true"
+          ></span>
+          <input
+            id="url"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="Enter a URL"
+            class="min-w-0 flex-1 bg-transparent font-mono text-[13px] text-text outline-none placeholder:text-text-faint"
+            x-model="$store.bp.url"
+            @keydown.enter="$store.bp.go()"
+            @keydown.escape="$store.bp.cancelUrlEdit()"
+            @focus="$store.bp.urlEditing = true"
+            @blur="$store.bp.urlEditing = false"
+          />
+          <span
+            x-show="$store.bp.urlStatus === 'notResponding'"
+            class="shrink-0 text-[12px] text-text-dim"
+            >not responding</span
+          >
+        </div>
+
+        <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.go()" aria-label="Load this URL in every panel">
+          <span class="h-3 w-3" x-icon="'go'"></span>
+        </button>
+        <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.reloadAll()" aria-label="Reload every panel">
+          <span class="h-3 w-3" x-icon="'reload'"></span>
+        </button>
+
+        <span class="mx-1 h-5 w-px shrink-0 bg-line" aria-hidden="true"></span>
+
+        <button
+          type="button"
+          class="h-7 shrink-0 rounded-sm border bg-chrome-raised px-3 text-[12px] font-medium"
+          :class="$store.bp.fitEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
+          :aria-pressed="$store.bp.fitEnabled"
+          @click="$store.bp.setFit(!$store.bp.fitEnabled)"
+        >
+          Fit
+        </button>
+        <button
+          type="button"
+          class="h-7 shrink-0 rounded-sm border bg-chrome-raised px-3 text-[12px] font-medium"
+          :class="$store.bp.syncEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
+          :aria-pressed="$store.bp.syncEnabled"
+          @click="$store.bp.setSync(!$store.bp.syncEnabled)"
+          title="Scrolling one panel scrolls the rest to the same place"
+        >
+          Sync
+        </button>
+        <button
+          type="button"
+          class="h-7 shrink-0 rounded-sm border bg-chrome-raised px-3 text-[12px] font-medium"
+          :class="$store.bp.followEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
+          :aria-pressed="$store.bp.followEnabled"
+          @click="$store.bp.setFollow(!$store.bp.followEnabled)"
+          title="A link followed in one panel is followed in all of them"
+        >
+          Follow
+        </button>
+
+        <!-- Marking a problem. While this is on, a click in a panel describes
+             the thing under the pointer instead of following a link, so it has
+             to be a mode you turn on rather than something always waiting. -->
+        <button
+          type="button"
+          class="h-7 shrink-0 whitespace-nowrap rounded-sm border bg-chrome-raised px-3 text-[12px] font-medium"
+          :class="$store.bp.picking ? 'border-accent text-accent' : 'border-line text-text-dim'"
+          :aria-pressed="$store.bp.picking"
+          @click="$store.bp.setPicking(!$store.bp.picking)"
+          title="Point at what is wrong in a panel and describe it, with the breakpoint width attached"
+        >
+          Report
+        </button>
+        <button
+          type="button"
+          x-show="$store.bp.reportCount"
+          class="h-7 shrink-0 whitespace-nowrap rounded-sm border border-accent bg-chrome-raised px-2.5 text-[12px] font-medium text-accent"
+          @click="$store.bp.copyReports()"
+          :title="`Copy ${$store.bp.reportCount} note${$store.bp.reportCount === 1 ? '' : 's'} and clear them`"
+        >
+          <span x-text="$store.bp.reportCount"></span>
+        </button>
+
+        <!-- The bridge dot is the only animated thing in the toolbar. -->
+        <span class="grid h-3.5 w-3.5 shrink-0 place-items-center">
+          <span
+            x-show="$store.bp.bridge.enabled"
+            class="h-1.5 w-1.5 rounded-full bg-accent"
+            :class="$store.bp.bridge.active && 'bp-pulse'"
+            :title="$store.bp.bridge.active ? 'An agent is mid-request' : 'Agent bridge is listening'"
+          ></span>
+        </span>
+
+        <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.openSettings()" aria-label="Settings">
+          <span class="h-3 w-3" x-icon="'gear'"></span>
+        </button>
+        </div>
+      </header>
+
+      <!-- The code moved. A question, not an instruction, so nothing changes
+           until it is answered. -->
+      <div
+        x-show="$store.bp.sourceChanged"
+        class="flex h-8 items-center gap-2 border-b border-line bg-chrome px-3 text-[12px]"
+      >
+        <span class="h-3 w-3 shrink-0 text-warn" x-icon="'warn'"></span>
+        <span class="truncate text-text-dim" x-text="$store.bp.sourceChanged?.message"></span>
+        <span class="truncate font-mono text-[10px] text-text-faint" x-text="$store.bp.sourceChanged?.file"></span>
+        <span class="flex-1"></span>
+        <button type="button" class="text-accent" @click="$store.bp.reviewChanges()">Review</button>
+        <button type="button" class="text-text-dim" @click="$store.bp.sourceChanged = null">Dismiss</button>
+      </div>
+
+      <!-- ================= Canvas furniture ================= -->
+      <template x-if="$store.bp.hasPanels">
+        <div x-data="canvas" @wheel.window="onWheel">
+          <!-- Label strip, 16px below the toolbar, scrolling in lockstep.
+
+               `overflow-clip`, never `overflow-hidden`. A hidden box is still
+               a scroll container: the labels run the whole width of the row,
+               so focusing one of the ghost buttons makes WebKit scroll the
+               strip across to reveal it, there is no scrollbar to show it has
+               happened, and nothing ever puts it back. The labels then sit
+               offset from the panels they name. `clip` makes no scroll
+               container at all, so there is nothing to scroll. -->
+          <div class="relative mt-4 h-8 overflow-clip">
+            <template x-for="panel in $store.bp.panels" :key="panel.id">
+              <div
+                class="group absolute top-0 flex items-start gap-2"
+                :style="`left:${panel.homeX - $store.bp.scrollX}px; width:${panel.onScreenWidth}px`"
+              >
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5">
+                    <span
+                      x-show="isLoading(panel)"
+                      class="bp-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
+                      :title="`${panel.name} is loading`"
+                    ></span>
+                    <div class="truncate text-[12px] leading-[15px] font-[590] text-text" x-text="panel.name"></div>
+                  </div>
+                  <div class="truncate font-mono text-[10px] leading-[13px] tracking-[0.02em] text-text-dim" x-text="meta(panel)"></div>
+                </div>
+                <!-- Hover reveals two ghost buttons and nothing else moves. -->
+                <div class="flex gap-1 opacity-0 transition-opacity duration-[120ms] group-hover:opacity-100">
+                  <button type="button" class="grid h-5 w-5 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim" @click="$store.bp.reloadPanel(panel.id)" :aria-label="`Reload the ${panel.name} panel`">
+                    <span class="h-2.5 w-2.5" x-icon="'reload'"></span>
+                  </button>
+                  <button type="button" class="grid h-5 w-5 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim" @click="$store.bp.screenshot(panel.id)" :aria-label="`Screenshot the ${panel.name} panel`">
+                    <span class="h-2.5 w-2.5" x-icon="'camera'"></span>
+                  </button>
+                  <button type="button" class="grid h-5 w-5 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim" @click="$store.bp.inspect(panel.id)" :aria-label="`Inspect the ${panel.name} panel`" :title="`Inspect ${panel.name} in the Web Inspector`">
+                    <span class="h-2.5 w-2.5" x-icon="'inspect'"></span>
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <!-- Notices sit at the right of this band, which is the only
+                 chrome that is never covered by a panel. -->
+            <div
+              x-show="$store.bp.notice"
+              class="absolute right-6 top-1 max-w-[420px] truncate rounded-sm border border-line bg-chrome-raised px-2.5 py-1 text-[12px] text-text-dim"
+              x-text="$store.bp.notice"
+            ></div>
+          </div>
+
+          <!-- A failed panel keeps its exact dimensions, because the size is
+               the information. -->
+          <template x-for="panel in failed()" :key="panel.id">
+            <div
+              class="absolute grid place-items-center border border-line bg-chrome text-center"
+              :style="`left:${panel.homeX - $store.bp.scrollX}px; top:${$store.bp.panelTop}px; width:${panel.onScreenWidth}px; height:${panel.onScreenHeight}px`"
+            >
+              <div>
+                <div class="font-mono text-[12px] text-text-faint" x-text="failureLine(panel)"></div>
+                <div class="mt-1 font-mono text-[10px] text-text-faint" x-text="`${Math.round(panel.width)} × ${Math.round(panel.height)} kept`"></div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Pan strip, along the bottom edge. Panels track it with zero
+               transition. A sideways trackpad swipe anywhere does the same
+               thing, so this is the fallback rather than the only way. -->
+          <div
+            class="absolute bottom-0 left-0 right-0 h-3 overflow-x-auto overflow-y-hidden border-t border-line"
+            data-scroller
+            x-ref="scroller"
+            @scroll="onScroll"
+            role="scrollbar"
+            aria-label="Pan the canvas"
+          >
+            <div class="h-px" :style="`width:${$store.bp.totalWidth}px`"></div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ================= First launch ================= -->
+      <div
+        x-show="$store.bp.ready && !$store.bp.hasPanels"
+        class="grid h-[calc(100%-56px)] place-items-center"
+      >
+        <div
+          class="w-[400px] rounded-sheet border border-dashed px-6 py-10 text-center"
+          :class="$store.bp.dragging ? 'border-solid border-accent bg-chrome' : 'border-line'"
+        >
+          <div class="text-[15px] font-semibold tracking-[-0.01em] text-text">
+            Drop a project folder to get started
+          </div>
+          <button
+            type="button"
+            class="mt-4 h-7 rounded-sm bg-accent px-3 text-[12px] font-medium text-accent-ink"
+            @click="$store.bp.chooseProject()"
+          >
+            Open project
+          </button>
+          <div class="mt-3.5 text-[12px] text-text-faint">
+            or just
+            <button type="button" class="text-accent" @click="$refs.url?.focus?.(); document.getElementById('url').focus()">
+              test a URL
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= Scan sheet ================= -->
+      <div
+        x-show="$store.bp.sheet === 'scan'"
+        class="fixed inset-0 z-10 flex items-center justify-center overflow-y-auto bg-scrim p-10"
+        @keydown.escape.window="$store.bp.closeSheet()"
+      >
+        <div
+          class="bp-sheet-in my-auto w-[560px] shrink-0 rounded-sheet border border-line bg-chrome p-6"
+          role="dialog"
+          aria-label="Project scan"
+          x-data="scanSheet"
+        >
+          <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text" x-text="heading"></h2>
+
+          <!-- Detector rows, appearing as each one finishes. -->
+          <div class="mt-5 space-y-2">
+            <template x-for="(row, index) in $store.bp.scan.rows" :key="index">
+              <div class="bp-row-in" :style="`animation-delay:${Math.min(index, 12) * 60}ms`">
+                <div class="flex items-baseline gap-2.5">
+                  <span
+                    class="w-3 shrink-0 font-mono text-[12px]"
+                    :class="{ ok: 'text-ok', warn: 'text-warn', error: 'text-error' }[row.status]"
+                    x-text="{ ok: '✓', warn: '⚠', error: '✕' }[row.status]"
+                    aria-hidden="true"
+                  ></span>
+                  <span
+                    class="min-w-0 flex-1 truncate text-[13px] text-text-dim"
+                    :class="row.mono && 'font-mono'"
+                    x-text="row.label"
+                  ></span>
+                  <button
+                    x-show="row.detail?.length"
+                    type="button"
+                    class="shrink-0 text-[12px] text-accent"
+                    @click="toggle(index)"
+                  >
+                    why?
+                  </button>
+                  <span
+                    x-show="row.source"
+                    class="shrink-0 font-mono text-[10px] text-text-faint"
+                    x-text="row.source"
+                  ></span>
+                </div>
+                <div x-show="expanded.includes(index)" class="ml-[22px] mt-1 space-y-0.5">
+                  <template x-for="line in row.detail" :key="line">
+                    <div class="whitespace-pre-wrap font-mono text-[10px] leading-4 text-text-faint" x-text="line"></div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Disagreements are shown, never resolved silently. -->
+          <template x-if="$store.bp.scan.conflicts.length">
+            <div class="mt-5 border-t border-line pt-5">
+              <div class="text-[12px] font-medium text-text-dim">
+                Two sources disagree
+              </div>
+              <template x-for="conflict in $store.bp.scan.conflicts" :key="conflict.name + conflict.right.width">
+                <div class="mt-3 space-y-1">
+                  <template x-for="side in [conflict.left, conflict.right]" :key="side.sourceFile + side.width">
+                    <div class="flex items-baseline gap-3 text-[13px]">
+                      <span class="w-20 shrink-0 text-text-dim" x-text="side.label"></span>
+                      <span class="w-[110px] shrink-0 text-right font-mono text-[12px] text-text" x-text="`${Math.round(side.width)} px`"></span>
+                      <span class="min-w-0 flex-1 truncate font-mono text-[10px] text-text-faint" x-text="side.sourceFile"></span>
+                    </div>
+                  </template>
+                  <div class="text-[12px] text-text-faint">
+                    Both are ticked below. Untick whichever you do not want, or keep both.
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <div class="mt-5 border-t border-line pt-5">
+            <div class="text-[12px] font-medium text-text-dim" x-text="recommendedLabel"></div>
+            <div class="mt-3 space-y-2">
+              <template x-for="candidate in $store.bp.scan.recommended" :key="candidate.id">
+                <label class="flex cursor-pointer items-center gap-3">
+                  <span
+                    class="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[2px] border"
+                    :class="candidate.checked ? 'border-accent bg-accent text-white' : 'border-line bg-chrome-raised text-transparent'"
+                  >
+                    <span class="h-2.5 w-2.5" x-icon="'check'"></span>
+                  </span>
+                  <input type="checkbox" class="sr-only" x-model="candidate.checked" />
+                  <span class="w-20 shrink-0 truncate text-[13px] text-text" x-text="candidate.name"></span>
+                  <span class="w-[110px] shrink-0 text-right font-mono text-[12px] text-text-dim" x-text="`${Math.round(candidate.width)} × ${Math.round(candidate.height)}`"></span>
+                  <span class="flex-1"></span>
+                  <span class="shrink-0 font-mono text-[10px] text-text-faint" x-text="candidate.detail"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <template x-if="$store.bp.scan.alsoFound.length">
+            <div class="mt-5">
+              <div class="text-[12px] font-medium text-text-dim">Also found in your CSS</div>
+              <div class="mt-3 space-y-2">
+                <template x-for="candidate in $store.bp.scan.alsoFound" :key="candidate.id">
+                  <label class="flex cursor-pointer items-center gap-3">
+                    <span
+                      class="grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[2px] border"
+                      :class="candidate.checked ? 'border-accent bg-accent text-white' : 'border-line bg-chrome-raised text-transparent'"
+                    >
+                      <span class="h-2.5 w-2.5" x-icon="'check'"></span>
+                    </span>
+                    <input type="checkbox" class="sr-only" x-model="candidate.checked" />
+                    <span class="w-20 shrink-0 font-mono text-[13px] text-text" x-text="`${Math.round(candidate.width)} px`"></span>
+                    <span class="w-[110px] shrink-0 text-right font-mono text-[12px] text-text-dim" x-text="`${Math.round(candidate.width)} × ${Math.round(candidate.height)}`"></span>
+                    <span class="flex-1"></span>
+                    <span class="shrink-0 font-mono text-[10px] text-text-faint" x-text="candidate.detail"></span>
+                  </label>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <div class="mt-6 flex items-center">
+            <button type="button" class="text-[12px] text-accent" @click="$store.bp.toggleLog()">
+              <span x-text="$store.bp.scan.logOpen ? 'Hide log' : 'View log'"></span>
+            </button>
+            <span class="flex-1"></span>
+            <button type="button" class="h-7 rounded-sm border border-line bg-chrome-raised px-3 text-[12px] font-medium text-text" @click="$store.bp.openSettings()">
+              Customize
+            </button>
+            <button type="button" class="ml-2 h-7 rounded-sm bg-accent px-3 text-[12px] font-medium text-accent-ink" @click="$store.bp.useSelected(true)">
+              Use these
+            </button>
+          </div>
+
+          <div x-show="$store.bp.scan.logOpen" class="mt-4 max-h-64 overflow-y-auto border-t border-line pt-4">
+            <template x-for="(entry, index) in $store.bp.scan.logLines" :key="index">
+              <div class="whitespace-pre-wrap font-mono text-[10px] leading-4 text-text-faint" x-text="renderLog(entry)"></div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= Settings sheet ================= -->
+      <div
+        x-show="$store.bp.sheet === 'settings'"
+        class="fixed inset-0 z-10 flex items-center justify-center overflow-y-auto bg-scrim p-10"
+        @keydown.escape.window="$store.bp.closeSheet()"
+      >
+        <div
+          class="bp-sheet-in my-auto flex w-[640px] shrink-0 rounded-sheet border border-line bg-chrome"
+          role="dialog"
+          aria-label="Settings"
+          x-data="settingsSheet"
+        >
+          <nav class="w-40 shrink-0 border-r border-line py-5">
+            <template x-for="tab in tabs" :key="tab.id">
+              <button
+                type="button"
+                class="block w-full py-2 text-left text-[12px]"
+                :class="$store.bp.settingsTab === tab.id
+                  ? 'border-l-2 border-accent bg-chrome-raised pl-4 text-text'
+                  : 'pl-[18px] text-text-dim'"
+                @click="$store.bp.settingsTab = tab.id"
+                x-text="tab.label"
+              ></button>
+            </template>
+          </nav>
+
+          <div class="min-w-0 flex-1 p-5">
+            <!-- Viewports -->
+            <div x-show="$store.bp.settingsTab === 'viewports'">
+              <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">Viewports</h2>
+              <p class="mt-1 text-[13px] text-text-dim">Drag to reorder. Order sets the canvas order.</p>
+
+              <div class="mt-4 space-y-1.5">
+                <template x-for="(row, index) in rows" :key="row.id">
+                  <div
+                    class="flex items-center gap-2"
+                    draggable="true"
+                    @dragstart="dragFrom = index"
+                    @dragover.prevent
+                    @drop.prevent="move(dragFrom, index)"
+                  >
+                    <span class="h-3 w-3 shrink-0 cursor-grab text-text-faint" x-icon="'drag'" aria-hidden="true"></span>
+                    <input
+                      type="text"
+                      class="h-[26px] min-w-0 flex-1 rounded-sm border bg-chrome-raised px-2 text-[12px] text-text outline-none"
+                      :class="row.isNew ? 'border-accent' : 'border-line'"
+                      placeholder="Untitled"
+                      x-model="row.name"
+                      :aria-label="`Name of viewport ${index + 1}`"
+                    />
+                    <input
+                      type="number"
+                      class="h-[26px] w-16 shrink-0 rounded-sm border border-line bg-chrome-raised px-2 text-right font-mono text-[12px] text-text outline-none"
+                      x-model.number="row.width"
+                      @change="onWidthChange(row)"
+                      :aria-label="`Width of ${row.name || 'the new viewport'}`"
+                    />
+                    <input
+                      type="number"
+                      class="h-[26px] w-16 shrink-0 rounded-sm border border-line bg-chrome-raised px-2 text-right font-mono text-[12px] text-text outline-none"
+                      x-model.number="row.height"
+                      :aria-label="`Height of ${row.name || 'the new viewport'}`"
+                    />
+                    <span class="w-14 shrink-0 rounded-sm border border-line py-[3px] text-center font-mono text-[10px] text-text-faint" x-text="row.source"></span>
+                    <button type="button" class="grid h-5 w-5 shrink-0 place-items-center text-text-faint" @click="rows.splice(index, 1)" :aria-label="`Remove ${row.name || 'this viewport'}`">
+                      <span class="h-2.5 w-2.5" x-icon="'close'"></span>
+                    </button>
+                  </div>
+                </template>
+              </div>
+
+              <button type="button" class="mt-3 h-[26px] rounded-sm border border-line bg-chrome-raised px-3 text-[12px] font-medium text-text" @click="addRow">
+                Add viewport
+              </button>
+
+              <div class="mt-5 border-t border-line pt-3">
+                <div class="flex items-center">
+                  <button type="button" class="text-[12px] text-accent" @click="resetToDetected" x-show="$store.bp.scan.recommended.length">
+                    Reset to detected values
+                  </button>
+                  <span class="flex-1"></span>
+                  <button type="button" class="h-7 rounded-sm border border-line bg-chrome-raised px-3 text-[12px] font-medium text-text" @click="$store.bp.closeSheet()">
+                    Cancel
+                  </button>
+                  <button type="button" class="ml-2 h-7 rounded-sm bg-accent px-3 text-[12px] font-medium text-accent-ink" @click="save">
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Project -->
+            <div x-show="$store.bp.settingsTab === 'project'" class="text-[13px]">
+              <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">Project</h2>
+              <dl class="mt-4 space-y-3">
+                <div>
+                  <dt class="text-[12px] font-medium text-text-dim">Folder</dt>
+                  <dd class="mt-0.5 break-all font-mono text-[12px] text-text" x-text="$store.bp.project ?? 'None open'"></dd>
+                </div>
+                <div x-show="$store.bp.scan.report">
+                  <dt class="text-[12px] font-medium text-text-dim">Detected</dt>
+                  <dd class="mt-0.5 text-text" x-text="detectedSummary"></dd>
+                </div>
+                <div x-show="$store.bp.projectFileError">
+                  <dt class="text-[12px] font-medium text-warn">breakpoints.md</dt>
+                  <dd class="mt-0.5 text-text-dim" x-text="$store.bp.projectFileError"></dd>
+                </div>
+              </dl>
+
+              <div class="mt-5 space-y-3">
+                <div class="flex items-center gap-3">
+                  <span class="w-40 text-[12px] font-medium text-text-dim">Panel heights</span>
+                  <select class="h-[26px] rounded-sm border border-line bg-chrome-raised px-2 text-[12px] text-text" x-model="heightStrategy" @change="savePreferences">
+                    <option value="device-ratio">From real device ratios</option>
+                    <option value="fixed">One fixed height</option>
+                    <option value="manual">Whatever I type</option>
+                  </select>
+                  <input
+                    x-show="heightStrategy === 'fixed'"
+                    type="number"
+                    class="h-[26px] w-20 rounded-sm border border-line bg-chrome-raised px-2 text-right font-mono text-[12px] text-text"
+                    x-model.number="fixedHeight"
+                    @change="savePreferences"
+                    aria-label="Fixed panel height"
+                  />
+                </div>
+                <label class="flex items-center gap-3">
+                  <input type="checkbox" x-model="edgeTesting" @change="savePreferences" />
+                  <span class="text-[12px] text-text-dim">Edge testing: add the pixel below each breakpoint too</span>
+                </label>
+                <label class="flex items-center gap-3">
+                  <input type="checkbox" x-model="uniformFit" @change="savePreferences" />
+                  <span class="text-[12px] text-text-dim">Scale every panel by the same factor, so proportions stay true</span>
+                </label>
+              </div>
+
+              <!-- One line. Three buttons at their old labels needed 466px in a
+                   438px column, so "Open another project" became "Change
+                   project"; the sheet's own width is from the design and is
+                   not ours to widen. -->
+              <div class="mt-5 flex flex-nowrap gap-2">
+                <button type="button" class="h-7 shrink-0 whitespace-nowrap rounded-sm border border-line bg-chrome-raised px-3 text-[12px] font-medium text-text" @click="$store.bp.chooseProject()">
+                  Change project
+                </button>
+                <button type="button" class="h-7 shrink-0 whitespace-nowrap rounded-sm border border-line bg-chrome-raised px-3 text-[12px] font-medium text-text" x-show="$store.bp.project" @click="$store.bp.writeProjectFile()">
+                  Write breakpoints.md
+                </button>
+                <button type="button" class="h-7 shrink-0 whitespace-nowrap rounded-sm border border-line bg-chrome-raised px-3 text-[12px] font-medium text-text" x-show="$store.bp.projectDriven" @click="openProjectFile">
+                  Open breakpoints.md
+                </button>
+              </div>
+            </div>
+
+            <!-- Agent bridge -->
+            <div x-show="$store.bp.settingsTab === 'bridge'" class="text-[13px]">
+              <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">Agent bridge</h2>
+              <p class="mt-1 text-text-dim">
+                A local server that lets Claude Code or Codex see every panel, run
+                JavaScript in them, and read what the scan found. It listens on
+                127.0.0.1 only and is off until you turn it on.
+              </p>
+
+              <label class="mt-4 flex items-center gap-3">
+                <input type="checkbox" :checked="$store.bp.bridge.enabled" @change="$store.bp.toggleBridge()" />
+                <span class="text-[12px] text-text-dim" x-text="$store.bp.bridge.enabled ? 'Listening' : 'Off'"></span>
+              </label>
+
+              <template x-if="$store.bp.bridge.enabled">
+                <div class="mt-4 space-y-3">
+                  <div>
+                    <div class="text-[12px] font-medium text-text-dim">Claude Code</div>
+                    <code class="mt-1 block break-all rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text" x-text="`claude mcp add --transport http breakpoints ${$store.bp.bridge.mcpUrl}`"></code>
+                  </div>
+                  <div>
+                    <div class="text-[12px] font-medium text-text-dim">Token</div>
+                    <code class="mt-1 block break-all rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text-faint" x-text="$store.bp.bridge.token"></code>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- About -->
+            <div x-show="$store.bp.settingsTab === 'about'" class="text-[13px] text-text-dim">
+              <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">Break/Points</h2>
+              <p class="mt-2">
+                Your code knows your breakpoints. Break/Points reads them out of
+                the project and builds the testing environment from what it
+                finds.
+              </p>
+              <p class="mt-3">
+                Panels render at the exact breakpoint width, which is the first
+                pixel of the range and where layouts actually break. Heights come
+                from the aspect ratio of a real device in that size class. Every
+                number on screen is the true one, including the scale percentage
+                when a panel is shrunk to fit.
+              </p>
+              <div class="mt-4 flex items-center">
+                <span class="flex-1"></span>
+                <button type="button" class="h-7 rounded-sm bg-accent px-3 text-[12px] font-medium text-accent-ink" @click="$store.bp.closeSheet()">
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-panel-event"
+description = "Enables the panel_event command without any pre-configured scope."
+commands.allow = ["panel_event"]
+
+[[permission]]
+identifier = "deny-panel-event"
+description = "Denies the panel_event command without any pre-configured scope."
+commands.deny = ["panel_event"]

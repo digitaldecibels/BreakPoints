@@ -1,0 +1,54 @@
+// The only place the chrome talks to Rust. Markup calls store actions; store
+// actions call these. Nothing in a template invokes a command directly.
+
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+
+async function call(name, args) {
+  try {
+    return await invoke(name, args);
+  } catch (error) {
+    console.error(`[breakpoints] ${name} failed:`, error);
+    throw typeof error === "string" ? new Error(error) : error;
+  }
+}
+
+export const api = {
+  boot: () => call("boot"),
+  state: () => call("app_state"),
+
+  applyViewports: (viewports, url) => call("apply_viewports", { viewports, url }),
+  navigate: (url) => call("navigate", { url }),
+  reloadAll: () => call("reload_all"),
+  reloadPanel: (panel) => call("reload_panel", { panel }),
+  setScroll: (offset) => call("set_scroll", { offset }),
+  setZoomToFit: (on) => call("set_zoom_to_fit", { on }),
+  setScrollSync: (on) => call("set_scroll_sync", { on }),
+  setFollowLinks: (on) => call("set_follow_links", { on }),
+  setPicking: (on) => call("set_picking", { on }),
+  takeReports: () => call("take_reports"),
+  inspectPanel: (panel) => call("inspect_panel", { panel }),
+  inspectChrome: () => call("inspect_chrome"),
+  setSheetOpen: (open) => call("set_sheet_open", { open }),
+  relayout: () => call("relayout"),
+
+  chooseProject: () => call("choose_project"),
+  openProject: (path) => call("open_project", { path }),
+  rescan: () => call("rescan"),
+  writeProjectFile: (viewports) => call("write_project_file", { viewports }),
+  openProjectFile: () => call("open_project_file"),
+
+  setPreferences: (prefs) => call("set_preferences", { prefs }),
+  listProfiles: () => call("list_profiles"),
+  selectProfile: (id) => call("select_profile", { id }),
+  saveProfile: (id, name, viewports) => call("save_profile", { id, name, viewports }),
+  deleteProfile: (id) => call("delete_profile", { id }),
+
+  scanLog: () => call("scan_log"),
+  breakpointSources: () => call("breakpoint_sources"),
+  setBridge: (on) => call("set_bridge", { on }),
+  screenshotPanel: (panel) => call("screenshot_panel", { panel }),
+  auditAll: () => call("audit_all"),
+};
+
+export { listen };

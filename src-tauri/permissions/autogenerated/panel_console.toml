@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-panel-console"
+description = "Enables the panel_console command without any pre-configured scope."
+commands.allow = ["panel_console"]
+
+[[permission]]
+identifier = "deny-panel-console"
+description = "Denies the panel_console command without any pre-configured scope."
+commands.deny = ["panel_console"]

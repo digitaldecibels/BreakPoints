@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-log"
+description = "Enables the scan_log command without any pre-configured scope."
+commands.allow = ["scan_log"]
+
+[[permission]]
+identifier = "deny-scan-log"
+description = "Denies the scan_log command without any pre-configured scope."
+commands.deny = ["scan_log"]

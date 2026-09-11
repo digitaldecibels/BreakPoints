@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-screenshot-panel"
+description = "Enables the screenshot_panel command without any pre-configured scope."
+commands.allow = ["screenshot_panel"]
+
+[[permission]]
+identifier = "deny-screenshot-panel"
+description = "Denies the screenshot_panel command without any pre-configured scope."
+commands.deny = ["screenshot_panel"]
