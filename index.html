@@ -124,32 +124,53 @@
 
         <button
           type="button"
-          class="h-7 shrink-0 rounded-sm border bg-chrome-raised px-3 text-[12px] font-medium"
+          class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border bg-chrome-raised px-2.5 text-[12px] font-medium"
           :class="$store.bp.fitEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
           :aria-pressed="$store.bp.fitEnabled"
           @click="$store.bp.setFit(!$store.bp.fitEnabled)"
+          title="Scale every panel down so the whole row fits the window"
         >
+          <span class="h-3 w-3 shrink-0" x-icon="'fit'"></span>
           Fit
         </button>
         <button
           type="button"
-          class="h-7 shrink-0 rounded-sm border bg-chrome-raised px-3 text-[12px] font-medium"
+          class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border bg-chrome-raised px-2.5 text-[12px] font-medium"
           :class="$store.bp.syncEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
           :aria-pressed="$store.bp.syncEnabled"
           @click="$store.bp.setSync(!$store.bp.syncEnabled)"
           title="Scrolling one panel scrolls the rest to the same place"
         >
+          <span class="h-3 w-3 shrink-0" x-icon="'sync'"></span>
           Sync
         </button>
         <button
           type="button"
-          class="h-7 shrink-0 rounded-sm border bg-chrome-raised px-3 text-[12px] font-medium"
+          class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border bg-chrome-raised px-2.5 text-[12px] font-medium"
           :class="$store.bp.followEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
           :aria-pressed="$store.bp.followEnabled"
           @click="$store.bp.setFollow(!$store.bp.followEnabled)"
           title="A link followed in one panel is followed in all of them"
         >
+          <span class="h-3 w-3 shrink-0" x-icon="'follow'"></span>
           Follow
+        </button>
+
+        <!-- Every panel as tall as the window allows, at its real width. The
+             declared height of a viewport is a guess at a device; sometimes
+             what you want is to see as much of the page as you can. It
+             overrides Fit, which is the opposite instruction, so turning this
+             on turns that off. -->
+        <button
+          type="button"
+          class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border bg-chrome-raised px-2.5 text-[12px] font-medium"
+          :class="$store.bp.fullHeightEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
+          :aria-pressed="$store.bp.fullHeightEnabled"
+          @click="$store.bp.setFullHeight(!$store.bp.fullHeightEnabled)"
+          title="Every panel as tall as the window allows, at its real width"
+        >
+          <span class="h-3 w-3 shrink-0" x-icon="'fullHeight'"></span>
+          Full height
         </button>
 
         <!-- Marking a problem. While this is on, a click in a panel describes
@@ -157,12 +178,13 @@
              to be a mode you turn on rather than something always waiting. -->
         <button
           type="button"
-          class="h-7 shrink-0 whitespace-nowrap rounded-sm border bg-chrome-raised px-3 text-[12px] font-medium"
+          class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border bg-chrome-raised px-2.5 text-[12px] font-medium"
           :class="$store.bp.picking ? 'border-accent text-accent' : 'border-line text-text-dim'"
           :aria-pressed="$store.bp.picking"
           @click="$store.bp.setPicking(!$store.bp.picking)"
           title="Point at what is wrong in a panel and describe it, with the breakpoint width attached"
         >
+          <span class="h-3 w-3 shrink-0" x-icon="'report'"></span>
           Report
         </button>
         <!-- Which session a note will be sent to. Absent until one claims,
@@ -186,15 +208,33 @@
           <span x-text="$store.bp.reportCount"></span>
         </button>
 
-        <!-- The bridge dot is the only animated thing in the toolbar. -->
-        <span class="grid h-3.5 w-3.5 shrink-0 place-items-center">
+        <!-- The agent bridge.
+
+             This was a bare 6px dot with no label, which said nothing to
+             anyone who had not read the code: it is the difference between an
+             agent being able to see this row and not, and that is worth more
+             than six pixels. Now a pill that names itself, and clicking it
+             opens the settings tab that turns it off.
+
+             The dot inside is still the only animated thing in the toolbar,
+             so movement there always means the same thing: a request is in
+             flight right now. -->
+        <button
+          type="button"
+          x-show="$store.bp.bridge.enabled"
+          class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-chrome-raised px-2.5 text-[11px] font-medium text-text-dim hover:text-text"
+          @click="$store.bp.openSettings(); $store.bp.settingsTab = 'bridge'"
+          :title="$store.bp.bridge.active
+            ? 'An agent is talking to Break/Points right now. Click to open the bridge settings.'
+            : 'The agent bridge is listening, so Claude Code can see this row. Click to open the bridge settings.'"
+        >
           <span
-            x-show="$store.bp.bridge.enabled"
-            class="h-1.5 w-1.5 rounded-full bg-accent"
+            class="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
             :class="$store.bp.bridge.active && 'bp-pulse'"
-            :title="$store.bp.bridge.active ? 'An agent is mid-request' : 'Agent bridge is listening'"
+            aria-hidden="true"
           ></span>
-        </span>
+          <span x-text="$store.bp.bridge.active ? 'Agent working' : 'Agent bridge'"></span>
+        </button>
 
         <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.openSettings()" aria-label="Settings">
           <span class="h-3 w-3" x-icon="'gear'"></span>
@@ -286,7 +326,7 @@
                happened, and nothing ever puts it back. The labels then sit
                offset from the panels they name. `clip` makes no scroll
                container at all, so there is nothing to scroll. -->
-          <div class="relative mt-4 h-8 overflow-clip">
+          <div class="relative mt-[26px] h-8 overflow-clip">
             <template x-for="panel in $store.bp.panels" :key="panel.id">
               <div
                 class="group absolute top-0 flex items-start gap-2"
@@ -487,7 +527,7 @@
 
           <template x-if="$store.bp.scan.alsoFound.length">
             <div class="mt-5">
-              <div class="text-[12px] font-medium text-text-dim">Also found in your CSS</div>
+              <div class="flex items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'doc'"></span> Also found in your CSS</div>
               <div class="mt-3 space-y-2">
                 <template x-for="candidate in $store.bp.scan.alsoFound" :key="candidate.id">
                   <label class="flex cursor-pointer items-center gap-3">
@@ -644,11 +684,11 @@
               <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">Project</h2>
               <dl class="mt-4 space-y-3">
                 <div>
-                  <dt class="text-[12px] font-medium text-text-dim">Folder</dt>
+                  <dt class="flex items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'folder'"></span> Folder</dt>
                   <dd class="mt-0.5 break-all font-mono text-[12px] text-text" x-text="$store.bp.project ?? 'None open'"></dd>
                 </div>
                 <div x-show="$store.bp.scan.report">
-                  <dt class="text-[12px] font-medium text-text-dim">Detected</dt>
+                  <dt class="flex items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'inspect'"></span> Detected</dt>
                   <dd class="mt-0.5 text-text" x-text="detectedSummary"></dd>
                 </div>
                 <div x-show="$store.bp.projectFileError">
@@ -659,7 +699,7 @@
 
               <div class="mt-5 space-y-3">
                 <div class="flex items-center gap-3">
-                  <span class="w-40 text-[12px] font-medium text-text-dim">Panel heights</span>
+                  <span class="flex w-40 shrink-0 items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'fullHeight'"></span> Panel heights</span>
                   <select class="h-[26px] rounded-sm border border-line bg-chrome-raised px-2 text-[12px] text-text" x-model="heightStrategy" @change="savePreferences">
                     <option value="device-ratio">From real device ratios</option>
                     <option value="fixed">One fixed height</option>
@@ -689,7 +729,7 @@
                    than as "default", since the whole reason this setting exists
                    is that shots used to go somewhere nobody could find. -->
               <div class="mt-5">
-                <div class="text-[12px] font-medium text-text-dim">Screenshots</div>
+                <div class="flex items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'camera'"></span> Screenshots</div>
                 <div class="mt-1 flex items-center gap-2">
                   <div class="min-w-0 flex-1 truncate font-mono text-[11px] text-text" x-text="$store.bp.shotDir" :title="$store.bp.shotDir"></div>
                   <button type="button" class="h-6 shrink-0 rounded-sm border border-line bg-chrome-raised px-2 text-[11px] font-medium text-text" @click="$store.bp.chooseShotDir()">
@@ -726,7 +766,7 @@
 
               <div class="mt-5 space-y-2">
                 <div class="flex items-center gap-3" x-show="browsers.length">
-                  <span class="w-40 shrink-0 text-[12px] font-medium text-text-dim">Open in browser</span>
+                  <span class="flex w-40 shrink-0 items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'follow'"></span> Open in browser</span>
                   <select class="h-[26px] rounded-sm border border-line bg-chrome-raised px-2 text-[12px] text-text" x-model="browser" @change="savePreferences">
                     <template x-for="option in browsers" :key="option.id">
                       <option :value="option.id" x-text="option.name"></option>
@@ -741,19 +781,15 @@
                 </div>
 
                 <p class="text-[12px] leading-5 text-text-dim">
-                  The arrow on each panel's label opens that panel's page here,
-                  at the panel's width, so you can use that browser's own
-                  developer tools.
+                  The arrow on each panel's label opens that page here, at the
+                  panel's width.
                 </p>
 
                 <!-- Said plainly, because it is the first thing anyone asks and
                      there is no setting that would make it otherwise. -->
                 <p class="mt-3 border-t border-line pt-3 text-[12px] leading-5 text-text-faint">
-                  The Inspect button next to it is always WebKit's Web
-                  Inspector, and cannot be changed. A panel is a WKWebView,
-                  which is the only engine available on macOS, and Chrome
-                  DevTools has no way to attach to one. That is what this
-                  setting is for.
+                  Inspect always opens WebKit's inspector. Chrome DevTools
+                  cannot attach to a panel, which is why this exists.
                 </p>
               </div>
             </div>
@@ -762,9 +798,8 @@
             <div x-show="$store.bp.settingsTab === 'bridge'" class="text-[13px]">
               <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">Agent bridge</h2>
               <p class="mt-1 text-text-dim">
-                A local server that lets Claude Code or Codex see every panel, run
-                JavaScript in them, and read what the scan found. It listens on
-                127.0.0.1 only and is off until you turn it on.
+                Lets Claude Code see and drive every panel. Listens on
+                127.0.0.1 only.
               </p>
 
               <label class="mt-4 flex items-center gap-3">
@@ -773,13 +808,118 @@
               </label>
 
               <template x-if="$store.bp.bridge.enabled">
-                <div class="mt-4 space-y-3">
+                <div class="mt-4 space-y-4">
+                  <!-- Step one. The token used to be printed on its own line
+                       below the command, which meant copying the command and
+                       running it produced a server that could not authenticate
+                       and failed with no useful message. It belongs in the
+                       command. -->
                   <div>
-                    <div class="text-[12px] font-medium text-text-dim">Claude Code</div>
-                    <code class="mt-1 block break-all rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text" x-text="`claude mcp add --transport http breakpoints ${$store.bp.bridge.mcpUrl}`"></code>
+                    <div class="text-[12px] font-medium text-text">1. Register the bridge, once per project</div>
+                    <p class="mt-1 text-[12px] leading-5 text-text-dim">
+                      Run this in the project's folder.
+                    </p>
+                    <code class="mt-1.5 block break-all rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text" x-text="`claude mcp add --transport http breakpoints ${$store.bp.bridge.mcpUrl} --header &quot;Authorization: Bearer ${$store.bp.bridge.token}&quot;`"></code>
                   </div>
+
+                  <!-- Step two: the bit nobody could have guessed. -->
                   <div>
-                    <div class="text-[12px] font-medium text-text-dim">Token</div>
+                    <div class="text-[12px] font-medium text-text">2. Claim reports for a session</div>
+                    <p class="mt-1 text-[12px] leading-5 text-text-dim">
+                      In the session you want notes to go to, run:
+                    </p>
+                    <code class="mt-1.5 block rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text">/run-breakpoints</code>
+                    <p class="mt-1.5 text-[12px] leading-5 text-text-dim">
+                      That session owns reports, and its name shows beside the
+                      Report button. Run it elsewhere to move them. Without
+                      this, notes are kept but nothing collects them.
+                    </p>
+                  </div>
+
+                  <div>
+                    <div class="text-[12px] font-medium text-text">3. Report something</div>
+                    <p class="mt-1 text-[12px] leading-5 text-text-dim">
+                      Turn on Report, click what is wrong in a panel, describe
+                      it. The width goes with it. Every note also lands on your
+                      clipboard.
+                    </p>
+                  </div>
+
+                  <!-- Which session owns them right now, so this is a status
+                       page and not just a set of instructions. -->
+                  <div class="border-t border-line pt-3">
+                    <div class="flex items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'go'"></span> Reports are going to</div>
+                    <div class="mt-1 text-[12px]">
+                      <span x-show="$store.bp.reportOwner" class="font-mono text-text" x-text="$store.bp.reportOwner?.name"></span>
+                      <span x-show="!$store.bp.reportOwner" class="text-text-faint">
+                        Nobody yet. Run /run-breakpoints in a session.
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- The standing instruction.
+
+                       A note says what is wrong and nothing about what to do
+                       with it, so an agent handed only a description guesses.
+                       This is the sentence in front of every note. It is
+                       editable because what you want done is a matter of how
+                       you work, and it is captured when a note is written
+                       rather than when it is collected, so editing it does not
+                       rewrite notes already waiting. -->
+                  <div class="border-t border-line pt-3">
+                    <div class="flex items-baseline gap-2">
+                      <div class="flex items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'report'"></span> Sent with every note</div>
+                      <span class="flex-1"></span>
+                      <button
+                        type="button"
+                        class="text-[11px] text-text-dim hover:text-text"
+                        @click="reportPrompt = ''; savePrompt()"
+                        title="Back to the instruction the app ships with"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    <textarea
+                      class="mt-1.5 block h-28 w-full resize-y rounded-sm border bg-chrome-raised p-2 font-mono text-[11px] leading-4 text-text outline-none"
+                      :class="promptDirty ? 'border-accent' : 'border-line focus:border-accent'"
+                      x-model="reportPrompt"
+                      aria-label="The instruction sent with every reported problem"
+                    ></textarea>
+
+                    <!-- An explicit Save, and a visible result.
+
+                         This saved quietly on blur, which worked and showed
+                         nothing, so there was no way to tell whether an edit
+                         had stuck. The same shape of bug as the button that
+                         wrote breakpoints.md and reported it somewhere nobody
+                         could see. -->
+                    <div class="mt-1.5 flex items-center gap-2">
+                      <span
+                        class="text-[11px]"
+                        :class="promptDirty ? 'text-warn' : 'text-text-faint'"
+                        x-text="promptDirty ? 'Unsaved changes' : (promptSaved ? 'Saved' : '')"
+                      ></span>
+                      <span class="flex-1"></span>
+                      <button
+                        type="button"
+                        class="h-6 shrink-0 rounded-sm px-2.5 text-[11px] font-medium"
+                        :class="promptDirty
+                          ? 'bg-accent text-accent-ink'
+                          : 'border border-line bg-chrome-raised text-text-faint'"
+                        :disabled="!promptDirty"
+                        @click="savePrompt()"
+                      >
+                        Save
+                      </button>
+                    </div>
+                    <p class="mt-1 text-[11px] leading-4 text-text-faint">
+                      Goes in front of every note, on the clipboard and over
+                      the bridge.
+                    </p>
+                  </div>
+
+                  <div>
+                    <div class="flex items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'key'"></span> Token</div>
                     <code class="mt-1 block break-all rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text-faint" x-text="$store.bp.bridge.token"></code>
                   </div>
                 </div>
@@ -790,16 +930,13 @@
             <div x-show="$store.bp.settingsTab === 'about'" class="text-[13px] text-text-dim">
               <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">Break/Points</h2>
               <p class="mt-2">
-                Your code knows your breakpoints. Break/Points reads them out of
-                the project and builds the testing environment from what it
-                finds.
+                Your code knows your breakpoints. Break/Points reads them and
+                builds the test environment from what it finds.
               </p>
               <p class="mt-3">
-                Panels render at the exact breakpoint width, which is the first
-                pixel of the range and where layouts actually break. Heights come
-                from the aspect ratio of a real device in that size class. Every
-                number on screen is the true one, including the scale percentage
-                when a panel is shrunk to fit.
+                Panels render at the exact breakpoint width, where layouts
+                actually break. Heights come from a real device in that class.
+                Every number on screen is the true one.
               </p>
               <div class="mt-4 flex items-center">
                 <span class="flex-1"></span>

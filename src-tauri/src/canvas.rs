@@ -26,9 +26,23 @@ pub const TOOLBAR_H: f64 = 56.0;
 /// toolbar: it is a scrollbar, and a scrollbar belongs at the end of the thing
 /// it scrolls.
 pub const STRIP_H: f64 = 12.0;
-pub const GAP_ABOVE_LABELS: f64 = 16.0;
+/// 26 rather than 16: the panel names sat too close under the toolbar. The
+/// chrome's own `mt-*` on the label strip has to match this exactly.
+pub const GAP_ABOVE_LABELS: f64 = 26.0;
 pub const LABEL_H: f64 = 32.0;
-pub const GAP_BELOW_LABELS: f64 = 16.0;
+/// The gap between the bottom of the label strip and the top of the panels.
+///
+/// 46 rather than the 16 the design asks for. Measured on 12 September 2026,
+/// the chrome draws its label strip at 72..104 and Rust places panels at
+/// `PANEL_TOP`, which should leave 16px clear, and on screen the panels still
+/// covered the size line under each panel's name. Both sides' arithmetic
+/// checked out, so something between the chrome's CSS origin and the origin a
+/// child webview is positioned against differs by roughly the height of a
+/// macOS title bar. This does not explain that; it moves the panels out of the
+/// way of it. 56 cleared them with room to spare and 36 still cleared them;
+/// 46 is where it settled by eye. The cost is 30px of panel height, which
+/// `available_height` already subtracts.
+pub const GAP_BELOW_LABELS: f64 = 46.0;
 pub const PANEL_TOP: f64 = TOOLBAR_H + GAP_ABOVE_LABELS + LABEL_H + GAP_BELOW_LABELS;
 pub const PANEL_GAP: f64 = 24.0;
 pub const OUTER_MARGIN: f64 = 24.0;
@@ -65,6 +79,8 @@ pub struct Canvas {
     pub follow: Follow,
     /// Whether the panels are armed to pick an element and describe a problem.
     pub picking: bool,
+    /// Every panel as tall as the canvas, instead of at its declared height.
+    pub full_height: bool,
     /// True while a sheet is open. Panels are hidden so the chrome can draw
     /// over the canvas; child webviews always composite above it.
     pub panels_hidden: bool,
@@ -88,6 +104,7 @@ impl Default for Canvas {
             sync_on: true,
             follow: Follow::default(),
             picking: false,
+            full_height: false,
             panels_hidden: false,
             inspecting: None,
         }
@@ -130,6 +147,7 @@ pub struct CanvasInfo {
     pub scroll_sync: bool,
     pub follow_links: bool,
     pub picking: bool,
+    pub full_height: bool,
     /// Which panel is being inspected, so the chrome can say so and offer a
     /// way out of the mode.
     pub inspecting: Option<String>,
@@ -156,7 +174,35 @@ pub fn layout(
     available_height: f64,
     zoom_to_fit: bool,
     fit_mode: FitMode,
+    full_height: bool,
 ) -> (Vec<Placement>, f64) {
+    // Every panel as tall as the canvas allows, at its real width.
+    //
+    // A viewport's declared height is a guess at a device, which is useful for
+    // judging a phone and useless when what you want is to see as much of a
+    // page as the window can show. This keeps the width exactly, because the
+    // width is the breakpoint and the breakpoint is the whole point, and takes
+    // the height from the window instead.
+    //
+    // It overrides zoom to fit rather than combining with it. Fit exists to
+    // make a panel short enough to see all of; this makes it as tall as the
+    // window allows. Doing both at once has no meaning.
+    if full_height {
+        let mut x = OUTER_MARGIN;
+        let mut out = Vec::with_capacity(viewports.len());
+        for vp in viewports {
+            let width = vp.width.round().max(1.0);
+            out.push(Placement {
+                home_x: x,
+                scale: 1.0,
+                width,
+                height: available_height.round().max(1.0),
+            });
+            x += width + PANEL_GAP;
+        }
+        return (out, (x - PANEL_GAP + OUTER_MARGIN).max(0.0));
+    }
+
     let uniform = if zoom_to_fit && fit_mode == FitMode::Uniform {
         viewports
             .iter()
@@ -703,11 +749,11 @@ pub async fn spawn(
     }
 
     let target = crate::util::normalize_url(url);
-    let (zoom_to_fit, fit_mode) = {
+    let (zoom_to_fit, fit_mode, full_height) = {
         let canvas = state.canvas.lock().unwrap();
-        (canvas.zoom_to_fit, canvas.fit_mode)
+        (canvas.zoom_to_fit, canvas.fit_mode, canvas.full_height)
     };
-    let (places, total) = layout(&viewports, available_height(app), zoom_to_fit, fit_mode);
+    let (places, total) = layout(&viewports, available_height(app), zoom_to_fit, fit_mode, full_height);
 
     // The row is emptied first and then filled in one panel at a time, because
     // a page can finish loading and report in before the last panel has even
@@ -814,7 +860,7 @@ pub fn relayout(app: &AppHandle, state: &Shared) {
     let avail = available_height(app);
     let mut canvas = state.canvas.lock().unwrap();
     let viewports: Vec<Viewport> = canvas.panels.iter().map(|p| p.viewport.clone()).collect();
-    let (places, total) = layout(&viewports, avail, canvas.zoom_to_fit, canvas.fit_mode);
+    let (places, total) = layout(&viewports, avail, canvas.zoom_to_fit, canvas.fit_mode, canvas.full_height);
     let scroll_x = canvas.scroll_x.min((total - 100.0).max(0.0));
     canvas.scroll_x = scroll_x;
     canvas.total_width = total;
@@ -1468,6 +1514,7 @@ pub fn info(state: &Shared) -> CanvasInfo {
         scroll_sync: canvas.sync_on,
         follow_links: canvas.follow.on,
         picking: canvas.picking,
+        full_height: canvas.full_height,
         inspecting: canvas.inspecting.clone(),
     }
 }
@@ -1813,7 +1860,7 @@ mod tests {
 
     #[test]
     fn unzoomed_panels_are_declared_size_and_start_at_the_margin() {
-        let (places, total) = layout(&vps(), 500.0, false, FitMode::Height);
+        let (places, total) = layout(&vps(), 500.0, false, FitMode::Height, false);
         assert_eq!(places[0].home_x, OUTER_MARGIN);
         assert_eq!(places[0].width, 640.0);
         assert_eq!(places[0].scale, 1.0);
@@ -1823,14 +1870,14 @@ mod tests {
 
     #[test]
     fn fit_height_scales_each_panel_separately() {
-        let (places, _) = layout(&vps(), 510.0, true, FitMode::Height);
+        let (places, _) = layout(&vps(), 510.0, true, FitMode::Height, false);
         assert!((places[0].scale - 0.6).abs() < 1e-9);
         assert!((places[1].scale - 0.5).abs() < 1e-9);
     }
 
     #[test]
     fn uniform_fit_uses_the_smallest_scale_for_every_panel() {
-        let (places, _) = layout(&vps(), 510.0, true, FitMode::Uniform);
+        let (places, _) = layout(&vps(), 510.0, true, FitMode::Uniform, false);
         // Rounding the frame to whole pixels can move a scale by a fraction of
         // a percent; the promise is that they are the same factor, not that
         // they are bit-identical.
@@ -1844,7 +1891,7 @@ mod tests {
         // At any scale, that has to come back to the breakpoint itself, or a
         // min-width query fires one pixel late and the app is lying.
         for height in [377.0, 512.0, 640.0, 719.0, 863.0] {
-            let (places, _) = layout(&vps(), height, true, FitMode::Height);
+            let (places, _) = layout(&vps(), height, true, FitMode::Height, false);
             for (place, vp) in places.iter().zip(vps()) {
                 let rendered = place.width / place.scale;
                 assert!(
@@ -1859,7 +1906,7 @@ mod tests {
 
     #[test]
     fn zoom_never_magnifies_a_panel_past_its_true_size() {
-        let (places, _) = layout(&vps(), 4000.0, true, FitMode::Height);
+        let (places, _) = layout(&vps(), 4000.0, true, FitMode::Height, false);
         assert_eq!(places[0].scale, 1.0);
     }
 }

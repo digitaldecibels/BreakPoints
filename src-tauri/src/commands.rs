@@ -27,6 +27,10 @@ pub struct Snapshot {
     /// rather than in `ProjectInfo` because it has a value even with no project
     /// open, when it is the Downloads folder.
     pub shot_dir: String,
+    /// The standing instruction sent with every note, resolved to the default
+    /// when none has been written, so the settings textarea always has real
+    /// text in it rather than a placeholder.
+    pub report_prompt: String,
     /// Which agent session notes are addressed to. Carried here as well as
     /// emitted on `reports:owner`, because the chrome reloads and an event it
     /// missed is an event it never hears about.
@@ -43,6 +47,10 @@ pub fn app_state(app: AppHandle, state: State<'_, Shared>) -> Snapshot {
     let project = tools::get_project_info(&state);
     let bridge = bridge::status(&app, &state);
     let report_owner = state.report_owner();
+    let report_prompt = config
+        .report_prompt
+        .clone()
+        .unwrap_or_else(|| crate::model::DEFAULT_REPORT_PROMPT.to_string());
     let shot_dir = config::shot_dir(&app, &state)
         .map(|d| d.to_string_lossy().to_string())
         .unwrap_or_default();
@@ -54,6 +62,7 @@ pub fn app_state(app: AppHandle, state: State<'_, Shared>) -> Snapshot {
         bridge,
         report_owner,
         shot_dir,
+        report_prompt,
     }
 }
 
@@ -165,6 +174,19 @@ pub fn set_zoom_to_fit(app: AppHandle, state: State<'_, Shared>, on: bool) {
     {
         let mut config = state.config.lock().unwrap();
         config.zoom_to_fit = on;
+        let _ = config::save(&app, &config);
+    }
+    canvas::relayout(&app, &state);
+}
+
+/// Every panel as tall as the canvas allows. Overrides zoom to fit, which is
+/// the opposite instruction.
+#[tauri::command]
+pub fn set_full_height(app: AppHandle, state: State<'_, Shared>, on: bool) {
+    state.canvas.lock().unwrap().full_height = on;
+    {
+        let mut config = state.config.lock().unwrap();
+        config.full_height = on;
         let _ = config::save(&app, &config);
     }
     canvas::relayout(&app, &state);
@@ -394,6 +416,10 @@ pub struct Preferences {
     /// Browser id for "Open in browser". Only this preference does not touch
     /// the layout, so it is the one that does not need a relayout after.
     pub browser: Option<String>,
+    /// The standing instruction sent with every reported problem. An empty
+    /// string means "back to the default", which is how the Reset button in
+    /// the settings sheet works without needing a command of its own.
+    pub report_prompt: Option<String>,
 }
 
 #[tauri::command]
@@ -415,6 +441,13 @@ pub fn set_preferences(app: AppHandle, state: State<'_, Shared>, prefs: Preferen
         }
         if let Some(value) = prefs.browser {
             config.browser = Some(value);
+        }
+        if let Some(value) = prefs.report_prompt {
+            config.report_prompt = if value.trim().is_empty() {
+                None
+            } else {
+                Some(value)
+            };
         }
         let _ = config::save(&app, &config);
         config.clone()

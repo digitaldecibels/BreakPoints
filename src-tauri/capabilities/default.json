@@ -50,6 +50,7 @@
     "allow-select-profile",
     "allow-set-bridge",
     "allow-set-follow-links",
+    "allow-set-full-height",
     "allow-set-picking",
     "allow-set-preferences",
     "allow-set-scroll",

@@ -57,6 +57,43 @@ export const icons = {
   // magnifyingglass, for opening the Web Inspector on a panel.
   inspect: svg('<circle cx="7" cy="7" r="3.8"/><path d="M9.9 9.9l3 3"/>'),
 
+  // arrow.left.and.right.to.line, for zoom to fit: the row squeezed to the
+  // bounds of the window.
+  fit: svg(
+    '<path d="M2.5 3.5v9"/><path d="M13.5 3.5v9"/><path d="M5 8h6"/>' +
+    '<path d="M7 6L5 8l2 2"/><path d="M9 6l2 2-2 2"/>'
+  ),
+
+  // Two arrows moving the same way, for scroll sync. Deliberately not a
+  // circular refresh glyph, which reads as "reload" and is already taken.
+  sync: svg(
+    '<path d="M5.5 2.5v9"/><path d="M3.5 9.5l2 2 2-2"/>' +
+    '<path d="M10.5 2.5v9"/><path d="M8.5 9.5l2 2 2-2"/>'
+  ),
+
+  // arrow.up.forward.square, for following a link out of one panel into all
+  // of them.
+  follow: svg(
+    '<path d="M9.5 2.5h4v4"/><path d="M13.5 2.5l-5 5"/>' +
+    '<path d="M11.5 9v2.5a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2H7"/>'
+  ),
+
+  // arrow.up.and.down.to.line, for panels filling the window's height.
+  fullHeight: svg(
+    '<path d="M2.5 2.5h11"/><path d="M2.5 13.5h11"/><path d="M8 4.5v7"/>' +
+    '<path d="M6 6.5L8 4.5l2 2"/><path d="M6 9.5l2 2 2-2"/>'
+  ),
+
+  // folder, for the project root.
+  folder: svg(
+    '<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.3l1.4 1.6h5.3A1.5 1.5 0 0 1 14 6.1v5.4A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5z"/>'
+  ),
+
+  // key, for the bridge token.
+  key: svg(
+    '<circle cx="5.5" cy="10.5" r="2.6"/><path d="M7.4 8.6L13 3"/><path d="M11 5l1.6 1.6"/>'
+  ),
+
   // exclamationmark.bubble, for marking a problem in a panel.
   report: svg(
     '<path d="M8 2.6c3 0 5.4 2 5.4 4.6S11 11.8 8 11.8c-.6 0-1.2-.1-1.7-.2l-2.7 1.3.7-2.2C3.2 9.9 2.6 8.8 2.6 7.2 2.6 4.6 5 2.6 8 2.6z"/><path d="M8 5.1v2.3"/><path d="M8 9.1v.1"/>'

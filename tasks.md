@@ -2,6 +2,66 @@
 
 ## Open
 
+- [ ] **Reports, step 1: make notes survive and never get stranded.** The
+  claim (which session notes are addressed to) and the queue of notes live only
+  in memory, so any edit under `src-tauri`, a Vite reload or a crash wipes both.
+  After that, new notes are addressed to nobody, and `take_reports_for` only
+  returns exact matches, so a session polling by id never sees them again. The
+  clipboard has the note; the session never does. Three changes, all in Rust:
+  treat a note with no `client` as anyone's, so a session asking by id also
+  gets notes written while nobody owned them; write the queue and the owner to
+  a small file in the app data folder and read it back at boot; and move the
+  prose formatting out of `store.js` into Rust as a `text` field on each note,
+  so the clipboard, the bridge and the WebSocket below all say the same thing.
+
+- [ ] **Reports, step 2: the toolbar count lies.** The chrome counts up on
+  `report:new` and only counts down when the button is clicked. A session
+  collecting over the bridge never tells the chrome, and clicking the count on
+  an empty queue says "Nothing reported yet" and leaves the number standing.
+  Have Rust emit a `reports:changed` event carrying the real count whenever a
+  note is added or taken, and have the chrome show that number rather than
+  keeping its own. Clear it on an empty copy too.
+
+- [ ] **Reports, step 3: push instead of poll.** The whole delivery design
+  rests on "the app cannot push into a session", and that is no longer true.
+  Claude Code's Monitor tool has a WebSocket mode: it opens a socket and every
+  incoming text frame arrives in the session as a notification, with no loop
+  and no polling. Add a WebSocket route to the bridge, something like
+  `/ws/reports?client=ID&name=NAME&token=TOKEN`. Connecting is the claim, so
+  the toolbar name appears the moment the session connects. On connect, flush
+  anything already waiting for that session; after that, send each note's
+  `text` as one frame at the moment it is written. The token goes in the query
+  string because the Monitor tool cannot send headers. This needs the `ws`
+  feature on the axum line in `Cargo.toml` and a broadcast channel in
+  `AppState`. While here, stop a socket from flipping `bridge_active`, which
+  is what makes the toolbar dot pulse on every request (a two second poll
+  blinks it thirty times a minute all day), and show a steady connected state
+  instead.
+
+- [ ] **Reports, step 4: rewrite `/run-breakpoints` down to three steps.**
+  Check the port, start the app if it is down, then one Monitor call with the
+  WebSocket URL and `persistent: true`. No claim request, no shell loop, and no
+  "python3 <format each note as one line>" placeholder that every session
+  fills in differently. Keep the curl route in a Traps section as the fallback
+  for when the socket is unavailable. The skill lives at
+  `~/.claude/skills/run-breakpoints/SKILL.md`.
+
+- [ ] **Reports, step 5: run the built app for everyday use.** There is no
+  built app anywhere; every session starts `npm run tauri dev`, which restarts
+  on every Rust edit and dies on a Vite reload (see the task above about
+  reloading the chrome). Run `npm run tauri build` once, keep the `.app`
+  somewhere stable, and have the skill launch it with `open -g` so it never
+  takes focus, falling back to the dev build only when the built one is
+  missing. That removes the restart and reload problems for every project that
+  is not Break/Points itself.
+
+- [ ] **Reports, two decisions once push delivery works.** Whether the
+  clipboard should still be overwritten on every note, which a preference
+  would settle. And whether to keep the MCP registration in the Bucknell
+  project's Claude Code config: it fails to connect whenever the app is not
+  already running at session start, so the tools never appear, and the skill
+  uses the HTTP API rather than MCP anyway.
+
 - [ ] **Test the MCP server.** The agent bridge's HTTP API is exercised often and
   works, but `/mcp` and the stdio shim in `agent/stdio-shim.js` have not been
   driven by a real client end to end. Register it with Claude Code

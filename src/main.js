@@ -136,6 +136,8 @@ Alpine.data("settingsSheet", () => ({
   // the moment of choosing.
   browsers: [],
   browser: null,
+  reportPrompt: "",
+  promptSaved: false,
 
   init() {
     this.seed();
@@ -151,6 +153,19 @@ Alpine.data("settingsSheet", () => ({
     // had not loaded either.
     this.$watch("$store.bp.sheet", (sheet) => {
       if (sheet === "settings") this.seed();
+    });
+
+    // Seeding on open is not enough on its own. The sheet can already be open
+    // when the page reloads, and then `seed` runs before `boot` has resolved,
+    // fills the textarea from an empty store, and the watch above never fires
+    // because the sheet never changed. So follow the value itself, and adopt
+    // it whenever the box has not been typed in. `previous` is what makes that
+    // safe: a box still holding the old saved text is untouched, a box holding
+    // anything else is an edit in progress and is left alone.
+    this.$watch("$store.bp.reportPrompt", (value, previous) => {
+      if (!this.reportPrompt || this.reportPrompt === previous) {
+        this.reportPrompt = value;
+      }
     });
   },
 
@@ -172,6 +187,7 @@ Alpine.data("settingsSheet", () => ({
     this.fixedHeight = store.config.fixedHeight ?? 900;
     this.edgeTesting = store.config.edgeTesting ?? false;
     this.uniformFit = store.config.fitMode === "uniform";
+    this.reportPrompt = store.reportPrompt;
 
     api.listBrowsers().then((found) => {
       this.browsers = found.browsers ?? [];
@@ -229,6 +245,30 @@ Alpine.data("settingsSheet", () => ({
       ...candidate,
       isNew: false,
     }));
+  },
+
+  /** Whether the textarea differs from what is actually saved. Drives both the
+   *  Save button and the "Unsaved changes" line, so the two can never disagree. */
+  get promptDirty() {
+    return this.reportPrompt !== Alpine.store("bp").reportPrompt;
+  },
+
+  /** Saved on its own, because a textarea should not trigger a relayout on
+   *  every keystroke the way the layout preferences do. An empty value means
+   *  "use the default", which is what the Reset button sends.
+   *
+   *  Rust resolves an empty string back to the default and hands the resolved
+   *  text back, so after Reset the textarea fills with the default rather than
+   *  going blank and leaving you to wonder what will be sent. */
+  async savePrompt() {
+    const store = Alpine.store("bp");
+    await api.setPreferences({ reportPrompt: this.reportPrompt });
+    const snapshot = await api.state();
+    store.config = snapshot.config;
+    store.reportPrompt = snapshot.reportPrompt;
+    this.reportPrompt = snapshot.reportPrompt;
+    this.promptSaved = true;
+    store.say("Report instruction saved.");
   },
 
   async savePreferences() {

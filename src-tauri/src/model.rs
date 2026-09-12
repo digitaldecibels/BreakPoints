@@ -144,6 +144,11 @@ pub struct AppConfig {
     pub fit_mode: FitMode,
     pub edge_testing: bool,
     pub zoom_to_fit: bool,
+    /// Every panel as tall as the canvas allows, rather than at its declared
+    /// height. Remembered, because it is a way of working rather than a thing
+    /// you do once.
+    #[serde(default)]
+    pub full_height: bool,
     pub scroll_sync: bool,
     /// Whether a link followed in one panel is followed in all of them.
     #[serde(default = "yes")]
@@ -164,7 +169,19 @@ pub struct AppConfig {
     /// else's devtools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser: Option<String>,
+    /// The standing instruction sent with every reported problem.
+    ///
+    /// A note says what is wrong. It does not say what to do about it, and an
+    /// agent handed only a description will guess. This is the sentence in
+    /// front of it, editable because what you want done with a note is a matter
+    /// of how you work rather than something the app should decide.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_prompt: Option<String>,
 }
+
+/// What travels with a note when nobody has written their own instruction.
+pub const DEFAULT_REPORT_PROMPT: &str = "Fix this layout problem in the project this panel is pointed at.\n\nVerify the premise before changing anything: measure the element at the width given and confirm it is actually wrong. Notes are written quickly while looking at a screen, and some of them describe something that is already correct. If it is already correct, say so rather than changing it.\n\nThe width is the point. A fix that works at one width and breaks another is not a fix.";
+
 
 /// Position and size of the main window, in logical pixels.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -216,12 +233,14 @@ impl Default for AppConfig {
             fit_mode: FitMode::Height,
             edge_testing: false,
             zoom_to_fit: true,
+            full_height: false,
             scroll_sync: true,
             follow_links: true,
             agent_bridge: false,
             bridge_token: None,
             window: None,
             browser: None,
+            report_prompt: None,
         }
     }
 }

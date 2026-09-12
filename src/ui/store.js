@@ -45,11 +45,17 @@ export function registerStore(Alpine) {
     followEnabled: true,
     /** Clicking in a panel describes an element instead of following a link. */
     picking: false,
+    // Every panel as tall as the window allows. Overrides Fit, which asks for
+    // the opposite, so the two are kept out of step here as well as in Rust.
+    fullHeightEnabled: false,
     /** How many notes are waiting to be collected. */
     // Where this project's screenshots land. Resolved by Rust, so it is a real
     // path rather than "the default", and shown so nobody has to go looking.
     shotDir: "",
     reportCount: 0,
+    // The standing instruction sent with every note, resolved to the default
+    // by Rust so this is always real text.
+    reportPrompt: "",
     // Which agent session notes are being addressed to, or null if none has
     // claimed. Shown in the toolbar so it is never a guess where a note went.
     reportOwner: null,
@@ -129,6 +135,7 @@ export function registerStore(Alpine) {
       // heard.
       this.reportOwner = snapshot.reportOwner ?? null;
       this.shotDir = snapshot.shotDir ?? this.shotDir;
+      this.reportPrompt = snapshot.reportPrompt ?? this.reportPrompt;
       this.activeProfile = snapshot.config?.activeProfile ?? "default";
       this.absorbCanvas(snapshot.canvas);
       if (snapshot.project) {
@@ -148,6 +155,7 @@ export function registerStore(Alpine) {
       this.syncEnabled = canvas.scrollSync;
       this.followEnabled = canvas.followLinks ?? this.followEnabled;
       this.picking = canvas.picking ?? this.picking;
+      this.fullHeightEnabled = canvas.fullHeight ?? this.fullHeightEnabled;
       this.inspecting = canvas.inspecting ?? null;
       if (canvas.url && canvas.url !== "about:blank") {
         this.canvasUrl = canvas.url;
@@ -414,7 +422,24 @@ export function registerStore(Alpine) {
 
     async setFit(on) {
       this.fitEnabled = on;
+      // Fit makes panels short enough to see all of; full height makes them as
+      // tall as the window allows. Asking for both at once means nothing, so
+      // each one turns the other off rather than leaving a state where the
+      // toolbar shows two contradictory things lit up.
+      if (on && this.fullHeightEnabled) {
+        this.fullHeightEnabled = false;
+        await api.setFullHeight(false);
+      }
       await api.setZoomToFit(on);
+    },
+
+    async setFullHeight(on) {
+      this.fullHeightEnabled = on;
+      if (on && this.fitEnabled) {
+        this.fitEnabled = false;
+        await api.setZoomToFit(false);
+      }
+      await api.setFullHeight(on);
     },
 
     async setSync(on) {
@@ -521,7 +546,11 @@ export function registerStore(Alpine) {
         Math.abs(report.innerWidth - report.width) > 1
           ? ` (the page reports ${Math.round(report.innerWidth)}px, which is itself wrong)`
           : "";
+      // The instruction leads, because whoever reads this needs to know what
+      // they are being asked to do before they read what is wrong.
+      const lead = (report.prompt ?? "").trim();
       return [
+        ...(lead ? [lead, ``, `---`, ``] : []),
         `${report.note}`,
         ``,
         `This problem exists ${at}${drawn}, in the ${report.panelName} panel.`,

@@ -531,6 +531,12 @@
           "markdownDescription": "Enables the set_follow_links command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_full_height command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-full-height",
+          "markdownDescription": "Enables the set_full_height command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_picking command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-picking",
@@ -769,6 +775,12 @@
           "type": "string",
           "const": "deny-set-follow-links",
           "markdownDescription": "Denies the set_follow_links command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_full_height command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-full-height",
+          "markdownDescription": "Denies the set_full_height command without any pre-configured scope."
         },
         {
           "description": "Denies the set_picking command without any pre-configured scope.",

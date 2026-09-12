@@ -247,6 +247,7 @@ pub fn run() {
             commands::reload_panel,
             commands::set_scroll,
             commands::set_zoom_to_fit,
+            commands::set_full_height,
             commands::set_scroll_sync,
             commands::set_follow_links,
             commands::set_picking,

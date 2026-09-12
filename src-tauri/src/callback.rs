@@ -283,6 +283,13 @@ fn report(app: &AppHandle, state: &Shared, nonce: &str, msg: ReportIn) {
         // collected. Switching sessions after writing a note should not
         // redirect the note.
         client: state.report_owner().map(|owner| owner.id),
+        prompt: state
+            .config
+            .lock()
+            .unwrap()
+            .report_prompt
+            .clone()
+            .unwrap_or_else(|| crate::model::DEFAULT_REPORT_PROMPT.to_string()),
     };
     state.push_report(report.clone());
     let _ = app.emit("report:new", &report);

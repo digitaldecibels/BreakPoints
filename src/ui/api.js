@@ -23,6 +23,7 @@ export const api = {
   reloadPanel: (panel) => call("reload_panel", { panel }),
   setScroll: (offset) => call("set_scroll", { offset }),
   setZoomToFit: (on) => call("set_zoom_to_fit", { on }),
+  setFullHeight: (on) => call("set_full_height", { on }),
   setScrollSync: (on) => call("set_scroll_sync", { on }),
   setFollowLinks: (on) => call("set_follow_links", { on }),
   setPicking: (on) => call("set_picking", { on }),

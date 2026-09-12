@@ -40,6 +40,10 @@ pub struct Report {
     /// reports when it was written. `None` means nobody had, and only the
     /// chrome's copy button will ever collect it.
     pub client: Option<String>,
+    /// The standing instruction, captured when the note was written rather than
+    /// when it is collected, so editing it later does not rewrite the meaning
+    /// of notes already sitting in the queue.
+    pub prompt: String,
 }
 
 /// One console line captured from a panel.
