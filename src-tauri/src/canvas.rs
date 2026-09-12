@@ -290,6 +290,35 @@ pub fn layout(
 }
 
 /// Height left for panels once the chrome has taken its share.
+/// Remember the window's width, so nothing on a hot path has to ask for it.
+pub fn remember_window_width(app: &AppHandle, state: &Shared) {
+    let Some(window) = app.get_window("main") else { return };
+    let Ok(size) = window.inner_size() else { return };
+    let scale = window.scale_factor().unwrap_or(1.0);
+    *state.window_width.lock().unwrap() = size.width as f64 / scale;
+}
+
+/// Whether a panel is on screen, or close enough to be about to be.
+///
+/// The row is routinely four times the width of the window: seven Bucknell
+/// viewports come to 6365px and a 1400px window shows three of them. Asking the
+/// other four for a scroll position nobody can have changed was more than half
+/// of everything the pump did.
+///
+/// The margin means a panel is already being collected from by the time it
+/// slides into view, rather than a tick late.
+pub fn panel_on_screen(home_x: f64, width: f64, scroll_x: f64, window_width: f64) -> bool {
+    const MARGIN: f64 = 200.0;
+    // Nobody has told us how wide the window is yet, so assume everything is
+    // visible. Guessing the other way would silently stop collecting from the
+    // whole row.
+    if window_width <= 0.0 {
+        return true;
+    }
+    let left = home_x - scroll_x;
+    left + width > -MARGIN && left < window_width + MARGIN
+}
+
 pub fn available_height(app: &AppHandle) -> f64 {
     let Some(window) = app.get_window("main") else {
         return 600.0;
@@ -1058,8 +1087,12 @@ pub fn start_pump(app: AppHandle, state: Shared) {
     /// Quiet for this long with focus and the rate drops to `DOZING_MS`.
     const DOZE_AFTER: std::time::Duration = std::time::Duration::from_secs(5);
 
+    /// How often every panel is collected from, on-screen or not.
+    const SWEEP_EVERY: u64 = 8;
+
     tauri::async_runtime::spawn(async move {
         let mut last_message = std::time::Instant::now();
+        let mut sweep: u64 = 0;
         loop {
             // Asking a webview a question is not cheap: each one is a script
             // evaluation and a callback through Tauri's own machinery, and six
@@ -1080,8 +1113,16 @@ pub fn start_pump(app: AppHandle, state: Shared) {
             };
             tokio::time::sleep(std::time::Duration::from_millis(interval)).await;
 
+            // Off-screen panels are collected from occasionally rather than
+            // never. Nobody is scrolling one, but a page that logs on a timer
+            // still fills its queue, and that queue discards its oldest
+            // messages once it is full.
+            sweep = sweep.wrapping_add(1);
+            let everything = sweep % SWEEP_EVERY == 0;
+
             let ids: Vec<String> = {
                 let canvas = state.canvas.lock().unwrap();
+                let window_width = *state.window_width.lock().unwrap();
                 canvas
                     .panels
                     .iter()
@@ -1094,6 +1135,10 @@ pub fn start_pump(app: AppHandle, state: Shared) {
                     // A row opened on http that redirects to https left every
                     // panel queueing into a void.
                     .filter(|p| needs_pump(&p.document_url))
+                    .filter(|p| {
+                        everything
+                            || panel_on_screen(p.home_x, p.width, canvas.scroll_x, window_width)
+                    })
                     .map(|p| p.viewport.id.clone())
                     .collect()
             };
@@ -1953,6 +1998,28 @@ mod tests {
         assert!(
             !load_failed("about:blank", ""),
             "nothing was requested, so nothing failed"
+        );
+    }
+
+    /// The row is routinely four times the window's width, so most of what the
+    /// pump used to do was asking panels nobody could see for a scroll
+    /// position nobody could have changed.
+    #[test]
+    fn only_the_panels_on_screen_are_collected_from() {
+        // A 1400px window over the real Bucknell row.
+        let w = 1400.0;
+        assert!(panel_on_screen(24.0, 375.0, 0.0, w), "first panel, row at rest");
+        assert!(panel_on_screen(997.0, 640.0, 0.0, w), "third panel, partly visible");
+        assert!(!panel_on_screen(4805.0, 1536.0, 0.0, w), "last panel, far off to the right");
+        // Panned to the far end, the first panel is now the hidden one.
+        assert!(!panel_on_screen(24.0, 375.0, 4800.0, w));
+        assert!(panel_on_screen(4805.0, 1536.0, 4800.0, w));
+        // Just off the left edge, and still collected from, because it is
+        // about to be on screen.
+        assert!(panel_on_screen(0.0, 300.0, 400.0, w));
+        assert!(
+            panel_on_screen(4805.0, 1536.0, 0.0, 0.0),
+            "with no window width known, collect from everything"
         );
     }
 

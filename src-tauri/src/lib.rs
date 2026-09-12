@@ -174,6 +174,10 @@ pub fn run() {
             let size = window.inner_size()?;
             let scale = window.scale_factor().unwrap_or(1.0);
 
+            // Before any resize event, so the pump knows what is on screen
+            // from the first tick.
+            *shared.window_width.lock().unwrap() = size.width as f64 / scale;
+
             // The chrome fills the window. Panels spawn after it, so they
             // composite above it, which is what lets a sheet be drawn by
             // hiding the panels rather than by fighting the z-order.
@@ -190,6 +194,7 @@ pub fn run() {
             let resize_state = shared.clone();
             window.on_window_event(move |event| match event {
                 WindowEvent::Resized(_) => {
+                    canvas::remember_window_width(&resize_handle, &resize_state);
                     canvas::relayout(&resize_handle, &resize_state);
                     remember_window(&resize_handle, &resize_state);
                 }

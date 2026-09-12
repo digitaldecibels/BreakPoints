@@ -136,6 +136,15 @@ pub struct AppState {
     /// Where injected scripts call home. Set once at startup.
     pub endpoint: OnceLock<Endpoint>,
 
+    /// The main window's logical width, kept up to date from the resize
+    /// handler.
+    ///
+    /// Asking the window for its size sends a message to the main thread and
+    /// blocks until it answers, with no timeout, so every hot path that wanted
+    /// it was parking a worker thread behind a main thread that is laying out
+    /// seven pages. Reading it from here costs a mutex.
+    pub window_width: Mutex<f64>,
+
     /// Held for the whole of `canvas::spawn`, so two row rebuilds cannot
     /// interleave.
     ///

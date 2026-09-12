@@ -93,7 +93,7 @@ are the paths that can quietly break it.
 
 ### Performance
 
-- [ ] **The pump asks panels nobody can see.** `canvas::start_pump` evaluates a
+- [x] **The pump asks panels nobody can see.** `canvas::start_pump` evaluates a
   drain script in every panel on every tick. Measured on 12 September 2026 with
   the Bucknell row: the row is 6365px wide in a 1400px window, so three panels
   of seven are on screen and the other four are asked for a scroll position
