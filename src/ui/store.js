@@ -48,10 +48,11 @@ export function registerStore(Alpine) {
     // Every panel as tall as the window allows. Overrides Fit, which asks for
     // the opposite, so the two are kept out of step here as well as in Rust.
     fullHeightEnabled: false,
-    /** How many notes are waiting to be collected. */
     // Where this project's screenshots land. Resolved by Rust, so it is a real
     // path rather than "the default", and shown so nobody has to go looking.
     shotDir: "",
+    /** How many notes are waiting to be collected. Owned by Rust and pushed
+     *  here on `reports:changed`, never counted in the chrome. */
     reportCount: 0,
     // The standing instruction sent with every note, resolved to the default
     // by Rust so this is always real text.
@@ -59,6 +60,11 @@ export function registerStore(Alpine) {
     // Which agent session notes are being addressed to, or null if none has
     // claimed. Shown in the toolbar so it is never a guess where a note went.
     reportOwner: null,
+    /** True while a session is holding a socket open, waiting for the next
+     *  note. That is the difference between a note being delivered and a note
+     *  joining a queue, so it changes both what the toolbar says and whether
+     *  the clipboard is touched. */
+    reportWatching: false,
 
     // Sheets: "none", "scan" or "settings"
     sheet: "none",
@@ -134,6 +140,8 @@ export function registerStore(Alpine) {
       // before the reload is one whose `reports:owner` event this page never
       // heard.
       this.reportOwner = snapshot.reportOwner ?? null;
+      this.reportCount = snapshot.reportCount ?? 0;
+      this.reportWatching = snapshot.bridge?.watching ?? false;
       this.shotDir = snapshot.shotDir ?? this.shotDir;
       this.reportPrompt = snapshot.reportPrompt ?? this.reportPrompt;
       this.activeProfile = snapshot.config?.activeProfile ?? "default";
@@ -216,12 +224,23 @@ export function registerStore(Alpine) {
       });
       listen("url:status", (event) => (this.urlStatus = event.payload));
       listen("canvas:notice", (event) => this.say(event.payload));
+      // How many notes are waiting, from the one place that knows. The chrome
+      // used to keep this number itself and never heard about a note collected
+      // over the bridge, so the badge sat there counting work that was already
+      // done.
+      listen("reports:changed", (event) => {
+        this.reportCount = event.payload?.count ?? 0;
+        this.reportWatching = event.payload?.watching ?? false;
+      });
       listen("report:new", (event) => this.absorbReport(event.payload));
       listen("reports:owner", (event) => {
         this.reportOwner = event.payload;
         this.say(`Reports are going to ${event.payload.name}.`);
       });
-      listen("bridge:status", (event) => (this.bridge = event.payload));
+      listen("bridge:status", (event) => {
+        this.bridge = event.payload;
+        this.reportWatching = event.payload?.watching ?? false;
+      });
 
       listen("scan:row", (event) => this.queueRow(event.payload));
 
@@ -539,39 +558,34 @@ export function registerStore(Alpine) {
 
     panelStateOf: panelState,
 
-    /** One note, formatted the way it should read when it reaches an agent. */
+    /** One note as prose. Rust writes this when the note is written, so the
+     *  clipboard, the bridge and a watching session all say the same thing. The
+     *  fallback covers a note left in the queue by an older version. */
     reportText(report) {
-      const at = `at the ${Math.round(report.width)}px breakpoint`;
-      const drawn =
-        Math.abs(report.innerWidth - report.width) > 1
-          ? ` (the page reports ${Math.round(report.innerWidth)}px, which is itself wrong)`
-          : "";
-      // The instruction leads, because whoever reads this needs to know what
-      // they are being asked to do before they read what is wrong.
-      const lead = (report.prompt ?? "").trim();
-      return [
-        ...(lead ? [lead, ``, `---`, ``] : []),
-        `${report.note}`,
-        ``,
-        `This problem exists ${at}${drawn}, in the ${report.panelName} panel.`,
-        `Element: ${report.element}`,
-        `Selector: ${report.selector}`,
-        `Page: ${report.url}`,
-      ].join("\n");
+      if (report.text) return report.text;
+      return `${report.note}\n\nAt the ${Math.round(report.width)}px breakpoint, in the ${report.panelName} panel.\nSelector: ${report.selector}\nPage: ${report.url}`;
     },
 
-    // The app cannot push into a Claude session, so a note goes two ways: it
-    // waits in the app for an agent to collect with take_reports, and it lands
-    // on the clipboard so it can be pasted straight away.
+    // A note goes to a session that is listening, and to the clipboard when
+    // none is.
+    //
+    // The clipboard used to be taken on every note, whichever way it was
+    // delivered. That made it a backstop nobody needed and cost you whatever
+    // you had copied. Now it only fires when nothing is listening, which makes
+    // a full clipboard the signal that no session got the note.
     async absorbReport(report) {
       if (!report) return;
-      this.reportCount += 1;
+      if (this.reportWatching) {
+        const to = this.reportOwner?.name;
+        this.say(`Sent ${Math.round(report.width)}px${to ? ` to ${to}` : ""}.`);
+        return;
+      }
       const text = this.reportText(report);
       try {
         await navigator.clipboard.writeText(text);
-        this.say(`Noted ${Math.round(report.width)}px, and copied. ${this.reportCount} waiting.`);
+        this.say(`Noted ${Math.round(report.width)}px, and copied. Nothing is listening.`);
       } catch (error) {
-        this.say(`Noted ${Math.round(report.width)}px. ${this.reportCount} waiting.`);
+        this.say(`Noted ${Math.round(report.width)}px. Nothing is listening.`);
       }
     },
 
@@ -579,13 +593,15 @@ export function registerStore(Alpine) {
     async copyReports() {
       const reports = await api.takeReports();
       if (!reports.length) {
-        this.say("Nothing reported yet.");
+        // The count comes from Rust, so an empty queue means the badge was
+        // stale. Ask for the truth rather than leaving a number that lies.
+        this.reportCount = 0;
+        this.say("Nothing waiting. Notes already collected are gone from here.");
         return;
       }
       const text = reports.map((report) => this.reportText(report)).join("\n\n---\n\n");
       try {
         await navigator.clipboard.writeText(text);
-        this.reportCount = 0;
         this.say(`${reports.length} note${reports.length === 1 ? "" : "s"} copied.`);
       } catch (error) {
         this.say("Could not reach the clipboard.");

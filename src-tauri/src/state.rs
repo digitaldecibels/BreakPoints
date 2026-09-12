@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::canvas::Canvas;
 use crate::model::{AppConfig, UrlStatus};
@@ -18,7 +18,7 @@ use crate::scanner::types::ScanReport;
 ///
 /// This is the whole point of the app written down: a layout is only wrong at
 /// some widths, so a note about one is worthless without the width attached.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     pub panel: String,
@@ -44,6 +44,46 @@ pub struct Report {
     /// when it is collected, so editing it later does not rewrite the meaning
     /// of notes already sitting in the queue.
     pub prompt: String,
+    /// The note as prose, built once here rather than by whoever collects it.
+    ///
+    /// This used to be assembled in the chrome's JavaScript for the clipboard
+    /// and left to each agent to invent for itself over the bridge, so the same
+    /// note read differently depending on how it arrived. One formatter means
+    /// the clipboard, the bridge and a watching session all say the same thing.
+    #[serde(default)]
+    pub text: String,
+}
+
+impl Report {
+    /// The instruction leads, because whoever reads this needs to know what
+    /// they are being asked to do before they read what is wrong.
+    pub fn describe(&self) -> String {
+        let drawn = if (self.inner_width - self.width).abs() > 1.0 {
+            format!(
+                " (the page reports {}px, which is itself wrong)",
+                self.inner_width.round()
+            )
+        } else {
+            String::new()
+        };
+        let mut out = String::new();
+        let lead = self.prompt.trim();
+        if !lead.is_empty() {
+            out.push_str(lead);
+            out.push_str("\n\n---\n\n");
+        }
+        out.push_str(&format!(
+            "{}\n\nThis problem exists at the {}px breakpoint{}, in the {} panel.\nElement: {}\nSelector: {}\nPage: {}",
+            self.note,
+            self.width.round(),
+            drawn,
+            self.panel_name,
+            self.element,
+            self.selector,
+            self.url,
+        ));
+        out
+    }
 }
 
 /// One console line captured from a panel.
@@ -96,6 +136,20 @@ pub struct AppState {
     /// Where injected scripts call home. Set once at startup.
     pub endpoint: OnceLock<Endpoint>,
 
+    /// Where the queue and the claim are written, so neither is lost when the
+    /// app restarts. Set once at startup; nothing is persisted until it is.
+    pub reports_file: OnceLock<PathBuf>,
+
+    /// Notes go out here the moment they are written, to anything waiting on
+    /// one: a WebSocket, or a long poll holding a request open. This is what
+    /// makes delivery a push rather than a two second poll.
+    pub report_tx: OnceLock<tokio::sync::broadcast::Sender<Report>>,
+
+    /// How many sessions are currently watching for notes. Drives the steady
+    /// "a session is listening" state in the toolbar, which is different from
+    /// the dot that pulses while a single request is in flight.
+    pub watchers: Mutex<usize>,
+
     /// Set while an agent request is in flight, so the toolbar dot can pulse.
     pub bridge_active: Mutex<bool>,
 
@@ -114,7 +168,7 @@ pub struct AppState {
 /// Claude Code hands every session a stable id in `CLAUDE_CODE_SESSION_ID`, so
 /// a session can name itself without the app inventing an identity for it. The
 /// name is for the toolbar; the id is what a note is addressed to.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientSession {
     pub id: String,
@@ -149,15 +203,54 @@ impl AppState {
         }
     }
 
+    /// Queue a note, write it down, and hand it to anything already waiting.
+    ///
+    /// The broadcast is what makes delivery immediate. A session holding a
+    /// WebSocket or a long poll gets the note at the moment it is written; the
+    /// queue is what a session that was not connected collects later.
     pub fn push_report(&self, report: Report) {
-        let mut reports = self.reports.lock().unwrap();
-        reports.push(report);
-        // Nobody is going to read the two hundredth unclaimed note, and this
-        // buffer outlives every panel in it.
-        if reports.len() > 200 {
-            let overflow = reports.len() - 200;
-            reports.drain(0..overflow);
+        {
+            let mut reports = self.reports.lock().unwrap();
+            reports.push(report.clone());
+            // Nobody is going to read the two hundredth unclaimed note, and
+            // this buffer outlives every panel in it.
+            if reports.len() > 200 {
+                let overflow = reports.len() - 200;
+                reports.drain(0..overflow);
+            }
         }
+        self.persist_reports();
+        if let Some(tx) = self.report_tx.get() {
+            // An error here only means nothing is listening, which is the
+            // ordinary case and not a failure: the note is in the queue.
+            let _ = tx.send(report);
+        }
+    }
+
+    /// Put notes back at the front of the queue, oldest first.
+    ///
+    /// Delivery takes a note out of the queue, so a send that fails half way
+    /// through would destroy the rest. A note nobody received is not a note
+    /// that was handled. Nothing is broadcast again: whatever was listening
+    /// has gone, which is why we are here.
+    pub fn requeue_reports(&self, mut notes: Vec<Report>) {
+        if notes.is_empty() {
+            return;
+        }
+        {
+            let mut reports = self.reports.lock().unwrap();
+            notes.append(&mut reports);
+            *reports = notes;
+        }
+        self.persist_reports();
+    }
+
+    /// Subscribe to notes as they are written. Every watcher gets every note;
+    /// filtering by who a note is addressed to is the subscriber's job.
+    pub fn subscribe_reports(&self) -> tokio::sync::broadcast::Receiver<Report> {
+        self.report_tx
+            .get_or_init(|| tokio::sync::broadcast::channel(64).0)
+            .subscribe()
     }
 
     /// Hand over everything and start again. Taking rather than reading is the
@@ -167,35 +260,72 @@ impl AppState {
     /// note whoever it was addressed to, which is what makes a note written
     /// while a dead session owned reports still reachable.
     pub fn take_reports(&self) -> Vec<Report> {
-        std::mem::take(&mut *self.reports.lock().unwrap())
+        let taken = std::mem::take(&mut *self.reports.lock().unwrap());
+        if !taken.is_empty() {
+            self.persist_reports();
+        }
+        taken
     }
 
-    /// Hand over only the notes addressed to one session, and leave everyone
-    /// else's alone.
+    /// Hand over the notes addressed to one session, plus any addressed to
+    /// nobody, and leave other sessions' notes alone.
     ///
     /// This is what an agent calls. Several sessions poll at once, so a drain
     /// that ignored the address would mean the fastest poller swallowed notes
     /// meant for a different window.
+    ///
+    /// An unaddressed note belongs to whoever asks first, and that is what
+    /// stops a note being stranded. The claim lives in memory, so a rebuild,
+    /// a reload or a crash loses it, and every note written after that is
+    /// addressed to nobody. Matching only the exact id left those notes in the
+    /// queue forever while the session that wanted them polled past them.
     pub fn take_reports_for(&self, client: &str) -> Vec<Report> {
         let mut reports = self.reports.lock().unwrap();
         let mut mine = Vec::new();
         let mut theirs = Vec::new();
         for report in std::mem::take(&mut *reports) {
-            if report.client.as_deref() == Some(client) {
-                mine.push(report);
-            } else {
-                theirs.push(report);
+            match report.client.as_deref() {
+                Some(owner) if owner != client => theirs.push(report),
+                _ => mine.push(report),
             }
         }
         *reports = theirs;
+        drop(reports);
+        if !mine.is_empty() {
+            self.persist_reports();
+        }
         mine
+    }
+
+    /// How many notes are waiting, whoever they are addressed to. The toolbar
+    /// count comes from here rather than from the chrome counting events, so
+    /// a note collected over the bridge is reflected in the window.
+    pub fn report_count(&self) -> usize {
+        self.reports.lock().unwrap().len()
+    }
+
+    /// Whether anything is listening for a note right now.
+    pub fn watching(&self) -> bool {
+        *self.watchers.lock().unwrap() > 0
+    }
+
+    pub fn watcher_joined(&self) {
+        *self.watchers.lock().unwrap() += 1;
+    }
+
+    pub fn watcher_left(&self) {
+        let mut watchers = self.watchers.lock().unwrap();
+        *watchers = watchers.saturating_sub(1);
     }
 
     /// Claim reports for a session. The last one to ask wins, deliberately:
     /// running the command in a window is how you say "send them here now".
     pub fn claim_reports(&self, session: ClientSession) -> ClientSession {
-        let mut owner = self.report_owner.lock().unwrap();
-        *owner = Some(session.clone());
+        {
+            let mut owner = self.report_owner.lock().unwrap();
+            *owner = Some(session.clone());
+        }
+        self.persist_reports();
         session
     }
 
@@ -206,5 +336,172 @@ impl AppState {
 
     pub fn clear_console(&self, panel: &str) {
         self.console.lock().unwrap().remove(panel);
+    }
+
+    /// Write the queue and the claim to disk.
+    ///
+    /// `tauri dev` rebuilds on every Rust edit, a Vite reload restarts the
+    /// chrome, and either one used to take every uncollected note with it. A
+    /// note is somebody describing a bug while looking at it, so losing one
+    /// costs more than the few milliseconds this takes.
+    pub fn persist_reports(&self) {
+        let Some(path) = self.reports_file.get() else {
+            return;
+        };
+        let saved = SavedReports {
+            reports: self.reports.lock().unwrap().clone(),
+            owner: self.report_owner.lock().unwrap().clone(),
+        };
+        let Ok(text) = serde_json::to_string_pretty(&saved) else {
+            return;
+        };
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, text).is_ok() {
+            let _ = std::fs::rename(&tmp, path);
+        }
+    }
+
+    /// Read back what the last run left waiting.
+    ///
+    /// The queue comes back and the claim deliberately does not. A claim names
+    /// a session that may well have ended while the app was down, and restoring
+    /// it would address every new note to a session nobody is watching. Nobody
+    /// owning reports is the honest state, and it is also the collectable one,
+    /// because an unaddressed note goes to whoever asks.
+    pub fn restore_reports(&self, path: PathBuf) {
+        let _ = self.reports_file.set(path.clone());
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        match serde_json::from_str::<SavedReports>(&text) {
+            Ok(saved) => {
+                let mut reports = self.reports.lock().unwrap();
+                *reports = saved.reports;
+            }
+            Err(err) => {
+                eprintln!("[breakpoints] waiting reports at {} did not parse: {err}", path.display());
+            }
+        }
+    }
+}
+
+/// The on-disk shape of what is waiting. Its own struct so the file can gain a
+/// field later without the queue becoming unreadable.
+#[derive(Debug, Serialize, Deserialize)]
+struct SavedReports {
+    #[serde(default)]
+    reports: Vec<Report>,
+    #[serde(default)]
+    owner: Option<ClientSession>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn note(client: Option<&str>) -> Report {
+        let mut report = Report {
+            panel: "p1".into(),
+            panel_name: "Medium".into(),
+            width: 768.0,
+            inner_width: 768.0,
+            url: "https://example.test/about".into(),
+            title: "About".into(),
+            element: "div.card".into(),
+            selector: "#main > div.card".into(),
+            rect: serde_json::json!({}),
+            note: "The heading wraps".into(),
+            at: 1,
+            client: client.map(|c| c.to_string()),
+            prompt: "Fix this.".into(),
+            text: String::new(),
+        };
+        report.text = report.describe();
+        report
+    }
+
+    /// The one that matters. The claim lives in memory, so a rebuild or a
+    /// reload leaves every later note addressed to nobody. Matching only the
+    /// exact id left those notes in the queue while the session that wanted
+    /// them polled straight past.
+    #[test]
+    fn a_note_addressed_to_nobody_goes_to_whoever_asks() {
+        let state = AppState::default();
+        state.push_report(note(None));
+        assert_eq!(state.take_reports_for("session-a").len(), 1);
+        assert_eq!(state.report_count(), 0);
+    }
+
+    #[test]
+    fn a_note_addressed_to_another_session_is_left_where_it_is() {
+        let state = AppState::default();
+        state.push_report(note(Some("session-b")));
+        assert!(state.take_reports_for("session-a").is_empty());
+        assert_eq!(state.report_count(), 1, "it is still there for session-b");
+        assert_eq!(state.take_reports_for("session-b").len(), 1);
+    }
+
+    #[test]
+    fn the_width_is_in_the_prose_because_that_is_the_whole_point() {
+        let text = note(None).describe();
+        assert!(text.contains("768px breakpoint"), "{text}");
+        assert!(text.starts_with("Fix this."), "the instruction leads: {text}");
+        assert!(text.contains("The heading wraps"), "{text}");
+        assert!(
+            !text.contains("which is itself wrong"),
+            "the page agreed about its width, so there is nothing to say"
+        );
+    }
+
+    /// When the panel and the page disagree about the width, that disagreement
+    /// is itself the bug and has to reach whoever reads the note.
+    #[test]
+    fn a_page_that_disagrees_about_its_own_width_says_so() {
+        let mut report = note(None);
+        report.inner_width = 751.0;
+        assert!(report.describe().contains("reports 751px"));
+    }
+
+    #[test]
+    fn a_restart_keeps_the_queue_and_forgets_the_claim() {
+        let path = std::env::temp_dir().join(format!(
+            "breakpoints-reports-test-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        let before = AppState::default();
+        let _ = before.reports_file.set(path.clone());
+        before.claim_reports(ClientSession {
+            id: "session-a".into(),
+            name: "bucknell".into(),
+            at: 1,
+        });
+        before.push_report(note(Some("session-a")));
+
+        // A fresh process, reading what the last one left.
+        let after = AppState::default();
+        after.restore_reports(path.clone());
+        assert_eq!(after.report_count(), 1, "the note survived");
+        assert!(
+            after.report_owner().is_none(),
+            "the claim did not, because the session it named may be gone"
+        );
+        // And because nothing owns reports, the note is still collectable by
+        // the session that comes back for it.
+        assert_eq!(after.take_reports_for("session-a").len(), 1);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_watcher_leaving_cannot_take_the_count_below_nothing() {
+        let state = AppState::default();
+        state.watcher_left();
+        assert!(!state.watching());
+        state.watcher_joined();
+        assert!(state.watching());
+        state.watcher_left();
+        assert!(!state.watching());
     }
 }

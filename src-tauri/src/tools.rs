@@ -20,6 +20,25 @@ pub fn list_panels(state: &Shared) -> Vec<PanelInfo> {
     canvas::info(state).panels
 }
 
+/// Tell the window how many notes are waiting, and whether anything is
+/// listening for the next one.
+///
+/// The chrome used to keep this number itself, counting up on every new note
+/// and down only when its own copy button was pressed. A session collecting
+/// over the bridge never told it, so the badge sat there claiming notes that
+/// had already been handled, and pressing it said "Nothing reported yet"
+/// without clearing the number. Emitting the real count from the one place
+/// that knows it means the two can never disagree.
+pub fn emit_report_count(app: &AppHandle, state: &Shared) {
+    let _ = app.emit(
+        "reports:changed",
+        json!({
+            "count": state.report_count(),
+            "watching": state.watching(),
+        }),
+    );
+}
+
 fn require_panel(state: &Shared, needle: &str) -> Result<String, String> {
     canvas::resolve_id(state, needle).ok_or_else(|| {
         let names: Vec<String> = list_panels(state)

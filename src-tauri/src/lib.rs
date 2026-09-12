@@ -125,6 +125,14 @@ pub fn run() {
             }
             *shared.config.lock().unwrap() = loaded;
 
+            // Notes nobody collected last time. The app restarts on every
+            // Rust edit under `tauri dev` and the chrome restarts on a Vite
+            // reload, and either one used to take the whole queue with it.
+            match config::reports_path(&handle) {
+                Ok(path) => shared.restore_reports(path),
+                Err(err) => eprintln!("[breakpoints] reports cannot be persisted: {err}"),
+            }
+
             // Injected scripts need somewhere to call home, and the port has to
             // be known before the first panel is built.
             match callback::start(handle.clone(), shared.clone()) {

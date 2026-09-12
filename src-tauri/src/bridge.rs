@@ -7,16 +7,23 @@
 //! The HTTP API is the real surface. Both transports are thin wrappers over
 //! `call_tool`, which means you can curl it while debugging.
 
+use std::collections::HashMap;
 use std::net::TcpListener as StdListener;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
-    extract::{Path as UrlPath, State as AxumState},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Path as UrlPath, Query, State as AxumState,
+    },
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use futures_util::{SinkExt, StreamExt};
+use tokio::sync::broadcast::error::RecvError;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
@@ -37,6 +44,11 @@ pub struct Status {
     /// True while an agent request is in flight, which is what makes the
     /// toolbar dot pulse rather than sit still.
     pub active: bool,
+    /// True while a session is holding a socket or a long poll open, waiting
+    /// for the next note. Steady rather than pulsing, because it is a state
+    /// and not an event, and it is the difference between a note being
+    /// delivered and a note sitting in a queue.
+    pub watching: bool,
 }
 
 pub fn status(_app: &AppHandle, state: &Shared) -> Status {
@@ -47,6 +59,7 @@ pub fn status(_app: &AppHandle, state: &Shared) -> Status {
         mcp_url: format!("http://127.0.0.1:{PORT}/mcp"),
         token: config.bridge_token.clone(),
         active: *state.bridge_active.lock().unwrap(),
+        watching: state.watching(),
     }
 }
 
@@ -100,6 +113,7 @@ pub async fn set_enabled(app: &AppHandle, state: &Shared, on: bool) -> Result<St
         .route("/health", get(health))
         .route("/tools", get(tool_list))
         .route("/api/:tool", post(http_tool))
+        .route("/ws/reports", get(reports_ws))
         .route("/mcp", post(mcp))
         .with_state(ctx);
 
@@ -168,6 +182,137 @@ async fn http_tool(
     }
 }
 
+/// A session watching for notes, pushed rather than polled.
+///
+/// The app used to be unable to reach into a session at all, so the skill that
+/// drives it ran a shell loop asking every two seconds. That is no longer
+/// necessary: a watching agent can hold a socket open and be handed each note
+/// at the moment it is written.
+///
+/// The token rides in the query string rather than a header, because the tool
+/// that opens this socket cannot set headers. That is only acceptable because
+/// the listener is loopback-only; never expose this beyond 127.0.0.1.
+async fn reports_ws(
+    AxumState(ctx): AxumState<Arc<Ctx>>,
+    Query(params): Query<HashMap<String, String>>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    if let Some(token) = &ctx.token {
+        if params.get("token").map(|given| given != token).unwrap_or(true) {
+            return (StatusCode::UNAUTHORIZED, "bad or missing token").into_response();
+        }
+    }
+    let client = params.get("client").cloned();
+    let name = params.get("name").cloned().or_else(|| client.clone());
+    ws.on_upgrade(move |socket| watch_reports(ctx, socket, client, name))
+}
+
+/// Hand over everything waiting for this session, one note per frame.
+///
+/// The frame is the note's own prose, built in Rust, so a session does not have
+/// to know the shape of anything to read it. Returns false once the socket has
+/// gone.
+///
+/// Delivery takes notes out of the queue, so a send that fails has to put the
+/// rest back. Without that, a note written in the seconds after a watcher went
+/// away was drained for a socket that could not carry it and then dropped,
+/// which is the stranding this whole change exists to stop.
+async fn send_waiting<S>(sink: &mut S, app: &AppHandle, state: &Shared, client: Option<&str>) -> bool
+where
+    S: SinkExt<Message> + Unpin,
+{
+    let waiting = drain_reports(state, client);
+    if waiting.is_empty() {
+        return true;
+    }
+    for (sent, report) in waiting.iter().enumerate() {
+        if sink.send(Message::Text(report.text.clone())).await.is_err() {
+            state.requeue_reports(waiting[sent..].to_vec());
+            tools::emit_report_count(app, state);
+            return false;
+        }
+    }
+    tools::emit_report_count(app, state);
+    true
+}
+
+async fn watch_reports(
+    ctx: Arc<Ctx>,
+    socket: WebSocket,
+    client: Option<String>,
+    name: Option<String>,
+) {
+    let app = ctx.app.clone();
+    let state = ctx.state.clone();
+
+    // Connecting is the claim. There is no separate request to make, so the
+    // toolbar names the session the moment it starts listening, and a session
+    // cannot end up watching for notes that are being addressed elsewhere.
+    if let (Some(id), Some(name)) = (client.clone(), name) {
+        let session = state.claim_reports(crate::state::ClientSession {
+            id,
+            name,
+            at: util::now_ms(),
+        });
+        let _ = app.emit("reports:owner", &session);
+    }
+
+    // Subscribe before the first drain, or a note written in between is
+    // delivered to nobody.
+    let mut rx = state.subscribe_reports();
+    state.watcher_joined();
+    let _ = app.emit("bridge:status", status(&app, &state));
+    tools::emit_report_count(&app, &state);
+
+    // Reading and writing at once, because a watcher going away has to be
+    // noticed at once rather than at the next thing we try to send. The app
+    // suppresses the clipboard while somebody is listening, so a stale
+    // "listening" is a note that goes nowhere at all.
+    let (mut sink, mut stream) = socket.split();
+    let (closed, mut has_closed) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        // Nothing a watcher sends means anything. Reading is only how the
+        // close is seen.
+        while let Some(Ok(_)) = stream.next().await {}
+        let _ = closed.send(());
+    });
+
+    // Whatever was written while this session was away goes first.
+    let mut alive = send_waiting(&mut sink, &app, &state, client.as_deref()).await;
+
+    while alive {
+        tokio::select! {
+            _ = &mut has_closed => break,
+            received = rx.recv() => match received {
+                // The broadcast is only a wake-up. The queue is what is
+                // actually delivered, so two notes in quick succession are one
+                // drain and the second wake-up finds nothing left to do.
+                Ok(_) | Err(RecvError::Lagged(_)) => {
+                    alive = send_waiting(&mut sink, &app, &state, client.as_deref()).await;
+                }
+                Err(RecvError::Closed) => break,
+            },
+            // A half-open connection, where the other end went away without
+            // saying so, is only found by writing to it.
+            _ = tokio::time::sleep(Duration::from_secs(20)) => {
+                alive = sink.send(Message::Ping(Vec::new())).await.is_ok();
+            }
+        }
+    }
+
+    state.watcher_left();
+    let _ = app.emit("bridge:status", status(&app, &state));
+    tools::emit_report_count(&app, &state);
+}
+
+/// Tools that must not pulse the toolbar dot.
+///
+/// The dot means "an agent is doing something", and a watcher asking for notes
+/// is not doing anything. A two second poll made it blink thirty times a
+/// minute for as long as a session was open, which trained the eye to ignore
+/// the one signal that says the bridge is in use.
+const QUIET_TOOLS: &[&str] = &["take_reports", "await_reports", "claim_reports"];
+
 /// MCP over HTTP, which is JSON-RPC 2.0 with three methods that matter.
 async fn mcp(
     AxumState(ctx): AxumState<Arc<Ctx>>,
@@ -231,14 +376,28 @@ fn rpc_error(id: Option<Value>, code: i32, message: &str) -> Value {
 
 /// Run a tool, with the toolbar dot lit for as long as it takes.
 async fn dispatch(ctx: &Ctx, tool: &str, args: &Value) -> Result<Value, String> {
-    *ctx.state.bridge_active.lock().unwrap() = true;
-    let _ = ctx.app.emit("bridge:status", status(&ctx.app, &ctx.state));
+    let pulse = !QUIET_TOOLS.contains(&tool);
+    if pulse {
+        *ctx.state.bridge_active.lock().unwrap() = true;
+        let _ = ctx.app.emit("bridge:status", status(&ctx.app, &ctx.state));
+    }
 
     let result = call_tool(&ctx.app, &ctx.state, tool, args).await;
 
-    *ctx.state.bridge_active.lock().unwrap() = false;
-    let _ = ctx.app.emit("bridge:status", status(&ctx.app, &ctx.state));
+    if pulse {
+        *ctx.state.bridge_active.lock().unwrap() = false;
+        let _ = ctx.app.emit("bridge:status", status(&ctx.app, &ctx.state));
+    }
     result
+}
+
+/// Take the notes a caller is entitled to: its own, plus any addressed to
+/// nobody. See `AppState::take_reports_for` for why the second half matters.
+fn drain_reports(state: &Shared, client: Option<&str>) -> Vec<crate::state::Report> {
+    match client {
+        Some(client) => state.take_reports_for(client),
+        None => state.take_reports(),
+    }
 }
 
 fn string_arg(args: &Value, key: &str) -> Result<String, String> {
@@ -291,6 +450,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "get_references",
     "diff_panel",
     "take_reports",
+    "await_reports",
     "claim_reports",
     "eval_chrome",
 ];
@@ -336,11 +496,56 @@ pub async fn call_tool(
             // Addressed if the caller says who it is, which is what
             // `/run-breakpoints` sets up. Unaddressed keeps the old behaviour
             // for a single session that never claimed anything.
-            let reports = match args.get("client").and_then(Value::as_str) {
-                Some(client) => state.take_reports_for(client),
-                None => state.take_reports(),
-            };
+            let reports = drain_reports(state, args.get("client").and_then(Value::as_str));
+            tools::emit_report_count(app, state);
             Ok(json!(reports))
+        }
+
+        // The same as `take_reports`, except that it waits rather than coming
+        // back empty. One call replaces a polling loop, and a note arrives the
+        // moment it is written instead of up to a poll interval later.
+        "await_reports" => {
+            let client = args
+                .get("client")
+                .and_then(Value::as_str)
+                .map(|s| s.to_string());
+            let seconds = args
+                .get("timeout")
+                .and_then(Value::as_f64)
+                .unwrap_or(25.0)
+                .clamp(1.0, 60.0);
+
+            // Subscribe before looking, or a note written between the two is
+            // waited past.
+            let mut rx = state.subscribe_reports();
+            let mut out = drain_reports(state, client.as_deref());
+
+            if out.is_empty() {
+                state.watcher_joined();
+                let _ = app.emit("bridge:status", status(app, state));
+                let deadline = tokio::time::Instant::now() + Duration::from_secs_f64(seconds);
+                loop {
+                    match tokio::time::timeout_at(deadline, rx.recv()).await {
+                        Ok(Ok(_)) | Ok(Err(RecvError::Lagged(_))) => {
+                            // A note for somebody else wakes us too, and
+                            // drains to nothing, so keep waiting.
+                            out = drain_reports(state, client.as_deref());
+                            if !out.is_empty() {
+                                break;
+                            }
+                        }
+                        Ok(Err(RecvError::Closed)) => break,
+                        Err(_past_the_deadline) => break,
+                    }
+                }
+                state.watcher_left();
+                let _ = app.emit("bridge:status", status(app, state));
+            }
+
+            if !out.is_empty() {
+                tools::emit_report_count(app, state);
+            }
+            Ok(json!(out))
         }
 
         "claim_reports" => {
@@ -356,6 +561,7 @@ pub async fn call_tool(
                 at: crate::util::now_ms(),
             });
             let _ = app.emit("reports:owner", &session);
+            tools::emit_report_count(app, state);
             Ok(json!(session))
         }
 
@@ -650,12 +856,29 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "take_reports",
-            "description": "Problems a person marked in a panel by pointing at an element and describing what is wrong, each with the breakpoint width it happened at. This empties the list, so what comes back is only what has not been handled yet. Call it when asked about reported problems, notes, or what is broken. Pass the same `client` id you claimed with, or you will collect notes addressed to somebody else's session.",
+            "description": "Problems a person marked in a panel by pointing at an element and describing what is wrong, each with the breakpoint width it happened at. Each note carries a `text` field that is the whole thing as prose, already formatted. This empties the list, so what comes back is only what has not been handled yet. Call it when asked about reported problems, notes, or what is broken. Pass the same `client` id you claimed with, or you will collect notes addressed to somebody else's session. To wait for the next note rather than checking for one, use await_reports.",
             "inputSchema": schema(
                 json!({
                     "client": {
                         "type": "string",
                         "description": "The session id passed to claim_reports. Omit only if this is the one and only session using the app.",
+                    }
+                }),
+                &[],
+            ),
+        }),
+        json!({
+            "name": "await_reports",
+            "description": "The same as take_reports, except that it waits for the next note rather than coming back empty. Hold this open instead of polling: it returns the moment somebody writes a note, or an empty list when the timeout passes, and you call it again. Pass the same `client` id you claimed with.",
+            "inputSchema": schema(
+                json!({
+                    "client": {
+                        "type": "string",
+                        "description": "The session id passed to claim_reports. Omit only if this is the one and only session using the app.",
+                    },
+                    "timeout": {
+                        "type": "number",
+                        "description": "Seconds to wait before coming back empty. Default 25, maximum 60.",
                     }
                 }),
                 &[],

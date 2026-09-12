@@ -51,6 +51,20 @@ pub fn save(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Where notes waiting to be collected are written: `<app data>/reports.json`.
+///
+/// Not in the config file, because this is a queue of work rather than a
+/// preference, and a note surviving a restart must not depend on the config
+/// being writable.
+pub fn reports_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("no data directory: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("reports.json"))
+}
+
 /// Where scan logs go: `<app data>/scans/`.
 pub fn scan_log_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app

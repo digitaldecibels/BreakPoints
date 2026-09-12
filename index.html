@@ -189,13 +189,22 @@
         </button>
         <!-- Which session a note will be sent to. Absent until one claims,
              because with nothing claimed the only collector is the copy
-             button beside it and saying "nobody" would be noise. -->
+             button beside it and saying "nobody" would be noise.
+
+             The arrow fills in when that session is actually holding a socket
+             open. Claimed and listening are different things: a claim survives
+             a session ending, and a note addressed to a session that went away
+             waits in the queue rather than arriving anywhere. The colour is
+             the only warning you get that a note will wait. -->
         <span
           x-show="$store.bp.reportOwner"
-          class="hidden shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-text-dim md:inline-flex"
-          :title="`Reports from this row are addressed to the ${$store.bp.reportOwner?.name} session. Running /run-breakpoints in another session moves them there.`"
+          class="hidden shrink-0 items-center gap-1 whitespace-nowrap text-[11px] md:inline-flex"
+          :class="$store.bp.reportWatching ? 'text-accent' : 'text-text-dim'"
+          :title="$store.bp.reportWatching
+            ? `The ${$store.bp.reportOwner?.name} session is listening, so a note arrives there as you send it. Running /run-breakpoints in another session moves them.`
+            : `Notes are addressed to the ${$store.bp.reportOwner?.name} session, but nothing is listening, so they wait here and go to your clipboard. Run /run-breakpoints in that session again.`"
         >
-          <span class="text-text-faint">&rarr;</span>
+          <span :class="$store.bp.reportWatching ? 'text-accent' : 'text-text-faint'">&rarr;</span>
           <span class="max-w-32 truncate" x-text="$store.bp.reportOwner?.name"></span>
         </span>
         <button
@@ -218,7 +227,11 @@
 
              The dot inside is still the only animated thing in the toolbar,
              so movement there always means the same thing: a request is in
-             flight right now. -->
+             flight right now. A session waiting for notes is a state rather
+             than an event, so it is a steady ring instead of a pulse. It used
+             to pulse, because a polling loop was a request every two seconds,
+             which taught the eye to ignore the one signal that means
+             something. -->
         <button
           type="button"
           x-show="$store.bp.bridge.enabled"
@@ -226,14 +239,16 @@
           @click="$store.bp.openSettings(); $store.bp.settingsTab = 'bridge'"
           :title="$store.bp.bridge.active
             ? 'An agent is talking to Break/Points right now. Click to open the bridge settings.'
-            : 'The agent bridge is listening, so Claude Code can see this row. Click to open the bridge settings.'"
+            : $store.bp.reportWatching
+              ? 'A session is waiting for your next note, so it arrives there as you send it. Click to open the bridge settings.'
+              : 'The agent bridge is listening, so Claude Code can see this row. Click to open the bridge settings.'"
         >
           <span
             class="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-            :class="$store.bp.bridge.active && 'bp-pulse'"
+            :class="$store.bp.bridge.active ? 'bp-pulse' : ($store.bp.reportWatching && 'ring-2 ring-accent/40')"
             aria-hidden="true"
           ></span>
-          <span x-text="$store.bp.bridge.active ? 'Agent working' : 'Agent bridge'"></span>
+          <span x-text="$store.bp.bridge.active ? 'Agent working' : ($store.bp.reportWatching ? 'Session listening' : 'Agent bridge')"></span>
         </button>
 
         <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.openSettings()" aria-label="Settings">

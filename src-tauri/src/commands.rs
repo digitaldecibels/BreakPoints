@@ -35,6 +35,10 @@ pub struct Snapshot {
     /// emitted on `reports:owner`, because the chrome reloads and an event it
     /// missed is an event it never hears about.
     pub report_owner: Option<crate::state::ClientSession>,
+    /// How many notes are waiting. Same reason: the chrome reloads, and a
+    /// badge it counted itself would start again at nothing while the queue
+    /// still held work.
+    pub report_count: usize,
 }
 
 #[tauri::command]
@@ -47,6 +51,7 @@ pub fn app_state(app: AppHandle, state: State<'_, Shared>) -> Snapshot {
     let project = tools::get_project_info(&state);
     let bridge = bridge::status(&app, &state);
     let report_owner = state.report_owner();
+    let report_count = state.report_count();
     let report_prompt = config
         .report_prompt
         .clone()
@@ -61,6 +66,7 @@ pub fn app_state(app: AppHandle, state: State<'_, Shared>) -> Snapshot {
         project,
         bridge,
         report_owner,
+        report_count,
         shot_dir,
         report_prompt,
     }
@@ -212,9 +218,16 @@ pub fn set_picking(state: State<'_, Shared>, on: bool) {
 }
 
 /// Everything reported since the last time anyone asked, and clears the list.
+///
+/// This is the chrome's copy button, so it takes every note whoever it was
+/// addressed to. That is what makes a note written while a session that has
+/// since gone away owned reports still reachable by hand.
 #[tauri::command]
-pub fn take_reports(state: State<'_, Shared>) -> Vec<crate::state::Report> {
-    state.take_reports()
+pub fn take_reports(app: AppHandle, state: State<'_, Shared>) -> Vec<crate::state::Report> {
+    let taken = state.take_reports();
+    let shared = (*state).clone();
+    tools::emit_report_count(&app, &shared);
+    taken
 }
 
 #[tauri::command]

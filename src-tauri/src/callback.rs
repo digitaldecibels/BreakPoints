@@ -267,7 +267,7 @@ fn report(app: &AppHandle, state: &Shared, nonce: &str, msg: ReportIn) {
         }
     };
 
-    let report = Report {
+    let mut report = Report {
         panel: msg.panel.clone(),
         panel_name: name,
         width,
@@ -290,9 +290,14 @@ fn report(app: &AppHandle, state: &Shared, nonce: &str, msg: ReportIn) {
             .report_prompt
             .clone()
             .unwrap_or_else(|| crate::model::DEFAULT_REPORT_PROMPT.to_string()),
+        text: String::new(),
     };
+    // Written once, here, so the clipboard, the bridge and a watching session
+    // all hand over the same words.
+    report.text = report.describe();
     state.push_report(report.clone());
     let _ = app.emit("report:new", &report);
+    crate::tools::emit_report_count(app, state);
 }
 
 fn wheel(app: &AppHandle, state: &Shared, nonce: &str, msg: Wheel) {
