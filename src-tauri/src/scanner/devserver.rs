@@ -161,6 +161,26 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     let mut packages: Vec<&std::path::PathBuf> = index.by_name("package.json");
     packages.sort_by_key(|rel| (rel.components().count(), rel.to_string_lossy().to_string()));
 
+    // Nested packages only count in a real workspace, or where there is no
+    // root package at all. Otherwise a project that merely contains something
+    // else, a documentation site in `docs/` say, starts offering that thing's
+    // dev server as a candidate for the site under test.
+    let root_package = packages.first().filter(|rel| rel.components().count() == 1);
+    let is_workspace = root_package
+        .and_then(|rel| budget.read(index, rel, log))
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .map(|json| !json["workspaces"].is_null() || !json["pnpm"].is_null())
+        .unwrap_or(false);
+    if root_package.is_some() && !is_workspace {
+        for rel in packages.iter().skip(1) {
+            log.skip(
+                &rel.to_string_lossy(),
+                "a package inside the project, and this project is not a workspace",
+            );
+        }
+        packages.truncate(1);
+    }
+
     for rel in packages.into_iter().take(MAX_PACKAGE_FILES) {
         let depth = rel.components().count();
         // Confidence falls away from the root: the root describes the project,
