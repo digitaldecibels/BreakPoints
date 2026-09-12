@@ -200,7 +200,16 @@ pub fn set_full_height(app: AppHandle, state: State<'_, Shared>, on: bool) {
 
 #[tauri::command]
 pub fn set_scroll_sync(app: AppHandle, state: State<'_, Shared>, on: bool) {
-    state.canvas.lock().unwrap().sync_on = on;
+    {
+        let mut canvas = state.canvas.lock().unwrap();
+        canvas.sync_on = on;
+        if on {
+            // Panels drift apart while sync is off, so nothing we remember
+            // about where they are can be trusted. Forget it, and the next
+            // scroll brings every one of them back into line.
+            canvas::forget_scroll_positions(&mut canvas);
+        }
+    }
     let mut config = state.config.lock().unwrap();
     config.scroll_sync = on;
     let _ = config::save(&app, &config);

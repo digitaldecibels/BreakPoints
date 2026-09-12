@@ -984,7 +984,7 @@ pub async fn spawn(
             width: place.width,
             height: place.height,
             state: PanelState::Loading,
-            last_scroll_pct: 0.0,
+            last_scroll_pct: UNKNOWN_SCROLL,
             document_url: String::new(),
             reported_width: None,
             ever_committed: committed,
@@ -1584,19 +1584,47 @@ pub fn reload_panel(state: &Shared, id: &str) {
 ///
 /// The position is a percentage of scrollable height, not a pixel offset,
 /// because the same page is a different height at 640 wide than at 1536.
+/// A panel whose position we cannot vouch for. Out of the 0 to 1 range, so it
+/// never matches a target and the next sync always tells it.
+const UNKNOWN_SCROLL: f64 = -1.0;
+
+/// How far a panel has to be from the target before it is worth telling.
+///
+/// A proportion of the page, not pixels, because that is what is being synced.
+/// A thousandth of a long page is a pixel or two, which nobody can see.
+const SYNC_EPSILON: f64 = 0.001;
+
+/// Forget where every panel is, so the next sync tells all of them.
+pub fn forget_scroll_positions(canvas: &mut Canvas) {
+    for panel in canvas.panels.iter_mut() {
+        panel.last_scroll_pct = UNKNOWN_SCROLL;
+    }
+}
+
 pub fn sync_scroll(state: &Shared, from: &str, pct: f64) {
-    let canvas = state.canvas.lock().unwrap();
+    let mut canvas = state.canvas.lock().unwrap();
     if !canvas.sync_on {
         return;
     }
-    let js = format!(
-        "window.__bpApplyScroll && window.__bpApplyScroll({})",
-        clamp01(pct)
-    );
-    for panel in canvas.panels.iter() {
-        if panel.viewport.id != from {
-            let _ = panel.webview.eval(&js);
+    let target = clamp01(pct);
+    let js = format!("window.__bpApplyScroll && window.__bpApplyScroll({target})");
+
+    for panel in canvas.panels.iter_mut() {
+        if panel.viewport.id == from {
+            // Where the panel doing the scrolling is, so that when it is the
+            // one being told later, we know whether it needs telling.
+            panel.last_scroll_pct = target;
+            continue;
         }
+        // Panels converge during a steady scroll, and once they have arrived
+        // there is nothing to say. This used to push into every other panel on
+        // every message, which for seven panels is about 42 evaluations per
+        // throttle window for the whole length of a scroll.
+        if (panel.last_scroll_pct - target).abs() < SYNC_EPSILON {
+            continue;
+        }
+        panel.last_scroll_pct = target;
+        let _ = panel.webview.eval(&js);
     }
 }
 
@@ -1722,6 +1750,10 @@ pub fn set_document_url(state: &Shared, id: &str, url: &str) {
         if panel.document_url != url {
             panel.document_url = url.to_string();
         }
+        // A new document starts at the top, so whatever we last told this
+        // panel about where it should be is no longer true of it. Out of
+        // range, so the next sync always tells it.
+        panel.last_scroll_pct = UNKNOWN_SCROLL;
     }
 }
 

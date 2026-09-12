@@ -153,7 +153,7 @@ are the paths that can quietly break it.
   magnitude on the slowest operation the app has. `references.rs` has the same
   pattern, and also writes a PNG and immediately reads and decodes it back.
 
-- [ ] **Scroll sync tells every panel, unconditionally.** A scroll message from
+- [x] **Scroll sync tells every panel, unconditionally.** A scroll message from
   one panel eval-pushes `__bpApplyScroll` into every other panel with no check
   on where they already are, which for seven panels is roughly 42 evaluations
   per throttle window during a steady scroll. `Panel::last_scroll_pct` is
