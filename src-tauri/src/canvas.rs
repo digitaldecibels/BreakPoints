@@ -790,6 +790,9 @@ pub async fn spawn(
     }
 
     let target = crate::util::normalize_url(url);
+    // Every panel is born here and sent to the real page once it is the right
+    // size. `normalize_url("")` is about:blank.
+    let blank = crate::util::normalize_url("");
     let (zoom_to_fit, fit_mode, full_height) = {
         let canvas = state.canvas.lock().unwrap();
         (canvas.zoom_to_fit, canvas.fit_mode, canvas.full_height)
@@ -812,9 +815,19 @@ pub async fn spawn(
         let handle = app.clone();
         let load_state = state.clone();
         let panel_id = vp.id.clone();
+        // Built blank, zoomed, and only then sent to the page.
+        //
+        // A webview created at its scaled size starts loading immediately, and
+        // the zoom is a separate message that lands afterwards, so with
+        // fit-to-width on a 1024 panel used to lay out its first document as a
+        // 512 viewport. WebKit re-lays out when the zoom arrives, but anything
+        // the page decides once is already decided: a media query read at parse
+        // time, a handler reading innerWidth, an image picking a source, a
+        // framework choosing a breakpoint on boot. For an app whose whole claim
+        // is the exactness of that width, that is the worst moment to be wrong.
         let builder = WebviewBuilder::new(
             format!("panel-{}", vp.id),
-            WebviewUrl::External(target.clone()),
+            WebviewUrl::External(blank.clone()),
         )
         .initialization_script(injected_script(&vp.id, &endpoint))
         .disable_drag_drop_handler()
@@ -887,6 +900,8 @@ pub async fn spawn(
             .map_err(|e| e.to_string())?;
 
         let _ = webview.set_zoom(place.scale);
+        // The viewport is now the declared width, so go to the real page.
+        let _ = webview.navigate(target.clone());
 
         // Claimed before the canvas lock is taken, because `mark_committed`
         // takes them in the other order.

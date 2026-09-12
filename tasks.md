@@ -62,7 +62,7 @@ are the paths that can quietly break it.
   the next two items automatically, in production, on real sites. Small, and
   the highest value item in either review.
 
-- [ ] **The first layout happens at the scaled width.** `spawn` creates the
+- [x] **The first layout happens at the scaled width.** `spawn` creates the
   child at `LogicalSize(place.width, place.height)` and the URL starts loading
   immediately; `set_zoom(place.scale)` is a separate message that lands after.
   With fit-to-width on, a 1024 panel therefore begins life as a 512 viewport.
