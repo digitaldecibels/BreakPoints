@@ -290,7 +290,7 @@ are the paths that can quietly break it.
 
 ### Scanner: wrong or missing widths
 
-- [ ] **A named list of widths loses its names and its status.** `css.rs`
+- [x] **A named list of widths loses its names and its status.** `css.rs`
   correctly pulls a map like `(sm: 576px, md: 768px, lg: 992px)` out of a
   variable, then hands each entry to `Occurrence::named`, which is an empty
   function (`css.rs:170`). The names are discarded, so five deliberate,

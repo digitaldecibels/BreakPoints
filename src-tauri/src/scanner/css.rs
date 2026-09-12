@@ -109,6 +109,8 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                     first_file: file.clone(),
                     first_line: line,
                     occurrences: 0,
+                    name: None,
+                    declared: false,
                 });
                 entry.files.insert(file.clone());
                 entry.occurrences += 1;
@@ -128,6 +130,8 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                 first_file: file.clone(),
                 first_line: line,
                 occurrences: 0,
+                name: None,
+                declared: false,
             });
             entry.files.insert(file.clone());
             entry.occurrences += 1;
@@ -164,10 +168,27 @@ struct Occurrence {
     first_file: String,
     first_line: usize,
     occurrences: usize,
+    /// The name the project gave this width, when it gave it one.
+    name: Option<String>,
+    /// True when the width came from a declared map of breakpoints rather than
+    /// from counting media queries.
+    declared: bool,
 }
 
 impl Occurrence {
-    fn named(&mut self, _name: &str) {}
+    /// A width that appears in a breakpoint map was chosen, not observed.
+    ///
+    /// This used to be an empty function, so the name was taken and thrown
+    /// away. Five deliberate, named breakpoints then arrived as five anonymous
+    /// widths at the confidence of a one-off tweak, and the recommender, which
+    /// ranks by how many files a width appears in, opened the three narrowest
+    /// and merely offered the two that designs most often break at.
+    fn named(&mut self, name: &str) {
+        if self.name.is_none() && !name.is_empty() {
+            self.name = Some(name.to_string());
+        }
+        self.declared = true;
+    }
 }
 
 /// Every `@media` prelude in a stylesheet, with where it starts.
@@ -259,22 +280,38 @@ fn cluster(mut found: Vec<Occurrence>, log: &mut ScanLog) -> Vec<BreakpointDisco
             }
         }
         let first = &group[0];
+        let name = group.iter().find_map(|o| o.name.clone());
+        let declared = group.iter().any(|o| o.declared);
+
         out.push(BreakpointDiscovery {
             width: representative,
-            name: None,
-            source: format!(
-                "{} media {} in {} file{}",
-                occurrences,
-                if occurrences == 1 { "query" } else { "queries" },
-                files.len(),
-                if files.len() == 1 { "" } else { "s" }
-            ),
+            name: name.clone(),
+            source: if declared {
+                match &name {
+                    Some(name) => format!("breakpoint map entry {name}"),
+                    None => "breakpoint map entry".to_string(),
+                }
+            } else {
+                format!(
+                    "{} media {} in {} file{}",
+                    occurrences,
+                    if occurrences == 1 { "query" } else { "queries" },
+                    files.len(),
+                    if files.len() == 1 { "" } else { "s" }
+                )
+            },
             source_file: first.first_file.clone(),
             line: Some(first.first_line),
             // A width used across many files is a real breakpoint; one used
-            // once is probably a tweak. That is the whole confidence signal.
-            confidence: (0.3 + 0.1 * files.len() as f64).min(0.85),
-            kind: Kind::Css,
+            // once is probably a tweak. That is the whole confidence signal,
+            // and it does not apply to a width somebody wrote down on purpose
+            // in a map of breakpoints: that one was chosen, not observed.
+            confidence: if declared {
+                0.9
+            } else {
+                (0.3 + 0.1 * files.len() as f64).min(0.85)
+            },
+            kind: if declared { Kind::Configured } else { Kind::Css },
             edge: first.edge,
             file_count: files.len(),
         });
@@ -328,6 +365,8 @@ mod tests {
                     first_file: "a.css".into(),
                     first_line: 1,
                     occurrences: 0,
+                    name: None,
+                    declared: false,
                 });
                 entry.files.insert("a.css".into());
                 entry.occurrences += 1;
