@@ -156,6 +156,57 @@ try {
   }
 } catch (e) { add("probe-failed", "low", null, "type probe: " + e.message); }
 
+// How many characters fit on a line of running text.
+//
+// The one typography problem that is genuinely a width problem: the same
+// paragraph is unreadably wide on a desktop and unreadably narrow on a phone,
+// and neither shows up in any other probe. Roughly 45 to 85 characters is the
+// usual range for comfortable reading.
+//
+// Measured rather than guessed: a hidden span of fifty characters in the
+// element's own font gives the real average character width at this size.
+try {
+  var blocks = document.querySelectorAll("p, li, blockquote, dd, figcaption");
+  var measured = 0, flagged = 0;
+  var ruler = document.createElement("span");
+  ruler.setAttribute("aria-hidden", "true");
+  ruler.style.cssText = "position:absolute;left:-9999px;top:0;white-space:pre;visibility:hidden";
+  document.body.appendChild(ruler);
+
+  for (var i = 0; i < blocks.length && measured < 40 && flagged < 5; i++) {
+    var el = blocks[i];
+    var text = (el.textContent || "").trim();
+    // Short runs are labels and captions, not reading matter.
+    if (text.length < 120) continue;
+    if (unseen(el)) continue;
+    var r = el.getBoundingClientRect();
+    if (r.width < 40) continue;
+
+    var cs = getComputedStyle(el);
+    ruler.style.font = cs.font || (cs.fontSize + " " + cs.fontFamily);
+    ruler.style.letterSpacing = cs.letterSpacing;
+    ruler.textContent = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx";
+    var perCharacter = ruler.getBoundingClientRect().width / 50;
+    if (!perCharacter || perCharacter < 1) continue;
+    measured++;
+
+    var padding = parseFloat(cs.paddingLeft || 0) + parseFloat(cs.paddingRight || 0);
+    var characters = Math.round((r.width - padding) / perCharacter);
+    if (characters > 95) {
+      add("line-length", "medium", el,
+          "About " + characters + " characters per line, which is long to read",
+          characters);
+      flagged++;
+    } else if (characters < 35) {
+      add("line-length", "medium", el,
+          "About " + characters + " characters per line, which is narrow to read",
+          characters);
+      flagged++;
+    }
+  }
+  if (ruler.parentNode) ruler.parentNode.removeChild(ruler);
+} catch (e) { add("probe-failed", "low", null, "line length probe: " + e.message); }
+
 // Images being stretched past what they contain.
 try {
   var imgs = document.images, blurry = 0;
@@ -312,7 +363,7 @@ pub async fn run(app: &AppHandle, state: &Shared) -> Result<Value, String> {
         },
         "severityMeaning": {
             "high": "overflow and overlap: the layout is broken here",
-            "medium": "small type, upscaled images and tap targets: usability, and often a design call",
+            "medium": "small type, upscaled images, tap targets and line length: usability, and often a design call",
             "low": "console noise and viewport-hungry fixed elements: worth a look, rarely urgent",
         },
     }))

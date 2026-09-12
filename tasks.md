@@ -560,7 +560,7 @@ are the paths that can quietly break it.
   turn it off, because a rebuild every few seconds should not start an audit
   every few seconds.
 
-- [ ] **A line length probe.** `audit.rs` covers overflow, overlap, small type,
+- [x] **A line length probe.** `audit.rs` covers overflow, overlap, small type,
   upscaled images and tap targets, but not measure. Text running to 140
   characters at 1536px and 25 at 375px is a real per-width typography problem,
   and neither end shows up in any existing probe. Roughly 45 to 85 characters
