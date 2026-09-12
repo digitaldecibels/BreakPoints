@@ -325,7 +325,7 @@ are the paths that can quietly break it.
   valid Tailwind and currently re-adds the five defaults the project deleted,
   because the extend flag is set from either site.
 
-- [ ] **Two-sided range queries match nothing.** The pattern in `units.rs`
+- [x] **Two-sided range queries match nothing.** The pattern in `units.rs`
   handles `(width >= 48rem)` and `(768px <= width)`, but both alternatives
   require a closing bracket straight after the operand, so
   `(48rem <= width < 64rem)` matches neither. That is the form the range syntax

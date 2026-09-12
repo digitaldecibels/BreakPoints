@@ -121,7 +121,25 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                     log.discarded(
                         &file,
                         query.trim(),
-                        "media query depends on a value this file does not define",
+                        "media query depends on a value no file in the project defines",
+                    );
+                } else if resolved.contains("calc(") {
+                    log.discarded(
+                        &file,
+                        query.trim(),
+                        "the width is a calc() and is only known once the browser works it out",
+                    );
+                } else if resolved.contains("var(") {
+                    log.discarded(
+                        &file,
+                        query.trim(),
+                        "the width is a custom property, which a media query cannot resolve anyway",
+                    );
+                } else if resolved.contains("@container") || resolved.contains("container") {
+                    log.discarded(
+                        &file,
+                        query.trim(),
+                        "a container query is about an element, not the viewport",
                     );
                 } else {
                     log.discarded(&file, query.trim(), "no width component");

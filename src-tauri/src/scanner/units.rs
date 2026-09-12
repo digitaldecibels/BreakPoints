@@ -81,6 +81,47 @@ fn range_re() -> &'static Regex {
     })
 }
 
+/// Turn `width <op> length` into the boundary worth rendering at.
+///
+/// Shared by the single-sided and double-ended forms so the two cannot drift.
+fn hit_for(op: &str, px: f64) -> WidthHit {
+    match op {
+        ">=" => WidthHit { boundary: px.round(), edge: Edge::Min, raw: px },
+        ">" => WidthHit { boundary: px.floor() + 1.0, edge: Edge::Min, raw: px },
+        "<=" => WidthHit { boundary: above(px), edge: Edge::Max, raw: px },
+        // `width < 768px` ends just below 768, so 768 is where the next range
+        // starts, which is the pixel worth rendering.
+        _ => WidthHit { boundary: px.round(), edge: Edge::Max, raw: px },
+    }
+}
+
+/// `a <op> b` read from the other side: `48rem <= width` is `width >= 48rem`.
+fn flip(op: &str) -> &'static str {
+    match op {
+        ">=" => "<=",
+        ">" => "<",
+        "<=" => ">=",
+        _ => ">",
+    }
+}
+
+/// The double-ended range: `(48rem <= width < 64rem)`.
+///
+/// This is the form the range syntax exists for and what PostCSS Preset Env
+/// emits, and it matched neither single-sided pattern, because both of those
+/// require the closing bracket straight after the operand. It was logged as
+/// having no width component, which is untrue and is exactly the line somebody
+/// reads to decide whether the detector is broken.
+fn range_both_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)\(\s*([0-9.]+)\s*(px|rem|em)?\s*(<=|<|>=|>)\s*width\s*(<=|<|>=|>)\s*([0-9.]+)\s*(px|rem|em)?\s*\)",
+        )
+        .unwrap()
+    })
+}
+
 /// Every width condition in one media query. A query with no width component
 /// returns nothing, which is how print, `prefers-reduced-motion` and retina
 /// queries get dropped before they can become panels.
@@ -114,14 +155,8 @@ pub fn widths_in_query(query: &str) -> Vec<WidthHit> {
             )
         } else {
             // `768px <= width` is `width >= 768px` with the operands swapped.
-            let flipped = match &caps[6] {
-                ">=" => "<=",
-                ">" => "<",
-                "<=" => ">=",
-                _ => ">",
-            };
             (
-                flipped.to_string(),
+                flip(&caps[6]).to_string(),
                 caps[4].to_string(),
                 caps.get(5).map(|m| m.as_str()).unwrap_or("").to_string(),
             )
@@ -129,15 +164,34 @@ pub fn widths_in_query(query: &str) -> Vec<WidthHit> {
         let Some(px) = parse_length(&format!("{number}{unit}")) else {
             continue;
         };
-        let hit = match op.as_str() {
-            ">=" => WidthHit { boundary: px.round(), edge: Edge::Min, raw: px },
-            ">" => WidthHit { boundary: px.floor() + 1.0, edge: Edge::Min, raw: px },
-            "<=" => WidthHit { boundary: above(px), edge: Edge::Max, raw: px },
-            // `width < 768px` ends just below 768, so 768 is where the next
-            // range starts, which is the pixel worth rendering.
-            _ => WidthHit { boundary: px.round(), edge: Edge::Max, raw: px },
-        };
-        out.push(hit);
+        out.push(hit_for(op.as_str(), px));
+    }
+
+    // Both ends of a double-ended range are real boundaries: the lower one is
+    // where the range starts applying, the upper one where it stops.
+    for caps in range_both_re().captures_iter(query) {
+        let low = parse_length(&format!(
+            "{}{}",
+            &caps[1],
+            caps.get(2).map(|m| m.as_str()).unwrap_or("")
+        ));
+        let high = parse_length(&format!(
+            "{}{}",
+            &caps[5],
+            caps.get(6).map(|m| m.as_str()).unwrap_or("")
+        ));
+        let (Some(first), Some(second)) = (low, high) else { continue };
+        let op1 = &caps[3];
+        let op2 = &caps[4];
+
+        // The first comparison is read from the other side and the second as
+        // it stands, whichever direction the range is written in. Written
+        // upwards that is `low <= width` then `width < high`; written
+        // downwards, `high > width` then `width >= low`. Each operator stays
+        // with the bound it was written against, which is what an earlier
+        // attempt got wrong by assuming the first was always the lower.
+        out.push(hit_for(flip(op1), first));
+        out.push(hit_for(op2, second));
     }
 
     out.sort_by(|a, b| a.boundary.partial_cmp(&b.boundary).unwrap());
@@ -170,6 +224,41 @@ pub fn overrides_root_font_size(css: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The form the range syntax exists for, and the one that matched nothing.
+    #[test]
+    fn a_double_ended_range_gives_both_boundaries() {
+        let hits = widths_in_query("(48rem <= width < 64rem)");
+        assert_eq!(hits.len(), 2, "{hits:?}");
+        assert_eq!(hits[0].boundary, 768.0);
+        assert_eq!(hits[0].edge, Edge::Min);
+        assert_eq!(hits[1].boundary, 1024.0);
+        assert_eq!(hits[1].edge, Edge::Max);
+
+        let pixels = widths_in_query("(400px <= width <= 700px)");
+        assert_eq!(pixels.len(), 2, "{pixels:?}");
+        assert_eq!(pixels[0].boundary, 400.0);
+        assert_eq!(pixels[1].boundary, 701.0, "inclusive upper bound ends at 701");
+    }
+
+    /// Written the other way round, which is valid and rare.
+    #[test]
+    fn a_range_written_downwards_still_reads_left_to_right() {
+        let hits = widths_in_query("(64rem > width >= 48rem)");
+        assert_eq!(hits.len(), 2, "{hits:?}");
+        assert_eq!(hits[0].boundary, 768.0);
+        assert_eq!(hits[0].edge, Edge::Min);
+        assert_eq!(hits[1].boundary, 1024.0);
+        assert_eq!(hits[1].edge, Edge::Max);
+    }
+
+    /// The single-sided forms have to keep working exactly as they did.
+    #[test]
+    fn single_sided_ranges_are_unchanged() {
+        assert_eq!(widths_in_query("(width >= 48rem)")[0].boundary, 768.0);
+        assert_eq!(widths_in_query("(768px <= width)")[0].boundary, 768.0);
+        assert!(widths_in_query("(prefers-reduced-motion: reduce)").is_empty());
+    }
 
     fn boundaries(query: &str) -> Vec<f64> {
         widths_in_query(query).into_iter().map(|h| h.boundary).collect()
