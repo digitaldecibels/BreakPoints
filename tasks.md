@@ -301,7 +301,7 @@ are the paths that can quietly break it.
   function states the intent; the code does the opposite. Small, and it is the
   most common convention outside Tailwind.
 
-- [ ] **A variable defined in one file and used in fifty resolves nowhere.**
+- [x] **A variable defined in one file and used in fifty resolves nowhere.**
   `scss_lengths` is built per file, inside the per-file loop, so the universal
   layout of one variables file plus fifty partials finds nothing: the defining
   file has no queries, and every user logs "depends on a value this file does

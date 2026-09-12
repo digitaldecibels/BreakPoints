@@ -7,6 +7,7 @@
 //! how many files use it.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use regex::Regex;
 
@@ -55,6 +56,18 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     let mut files_read = 0usize;
     let mut root_override: Option<(String, String)> = None;
 
+    // Read once, understand the whole project, then resolve.
+    //
+    // Resolution used to happen per file with only that file's own variables,
+    // and the universal layout is one file that defines the widths and fifty
+    // that use them. The defining file has no media queries at all, and every
+    // file that does was discarded as depending on a value it did not define,
+    // so those projects reported no breakpoints and fell back to generic
+    // device sizes.
+    let mut sources: Vec<(String, String)> = Vec::new();
+    let mut project_vars: BTreeMap<String, String> = BTreeMap::new();
+    let mut project_maps: BTreeMap<String, f64> = BTreeMap::new();
+
     for rel in index.by_extension(&["css", "scss", "sass"]) {
         let file = rel.to_string_lossy().to_string();
         if IGNORE_MARKERS.iter().any(|m| file.contains(m)) {
@@ -84,9 +97,24 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
             }
         }
 
-        let variables = scss_lengths(&text);
-        for (query, offset) in media_preludes(&text) {
-            let resolved = substitute(&query, &variables);
+        for (name, value) in scss_lengths(&text) {
+            project_vars.entry(name).or_insert(value);
+        }
+        for (key, px, _) in scss_map_entries(&text) {
+            project_maps.entry(key).or_insert(px);
+        }
+        sources.push((file, text));
+    }
+
+    for (file, text) in &sources {
+        let file = file.clone();
+        let text = text.as_str();
+        // The file's own definitions win over the project's, which is what
+        // SCSS itself does.
+        let mut variables = project_vars.clone();
+        variables.extend(scss_lengths(text));
+        for (query, offset) in media_preludes(text) {
+            let resolved = substitute_maps(&substitute(&query, &variables), &project_maps);
             let hits = widths_in_query(&resolved);
             if hits.is_empty() {
                 if resolved.contains('$') || resolved.contains("#{") {
@@ -118,6 +146,31 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                     entry.edge = Edge::Min;
                 }
             }
+        }
+
+        // How a breakpoint map is actually used: through a mixin, by key.
+        //
+        // `@include media-breakpoint-up(md)` is Bootstrap, and every sass-mq
+        // derivative has its own spelling of it. What each mixin does cannot be
+        // known statically, but the key can: it is one the project itself
+        // declared in its own map. Counting these is what gives a Bootstrap
+        // project a real usage count instead of one occurrence from inside the
+        // file that defines the mixin.
+        for key in mixin_keys(text) {
+            let Some(px) = project_maps.get(&key) else { continue };
+            let entry = per_width.entry(*px as i64).or_insert_with(|| Occurrence {
+                width: *px,
+                edge: Edge::Min,
+                files: BTreeSet::new(),
+                first_file: file.clone(),
+                first_line: 1,
+                occurrences: 0,
+                name: Some(key.clone()),
+                declared: true,
+            });
+            entry.files.insert(file.clone());
+            entry.occurrences += 1;
+            entry.named(&key);
         }
 
         // A SCSS breakpoint map is a deliberate configuration even though it
@@ -230,11 +283,50 @@ fn scss_map_entries(css: &str) -> Vec<(String, f64, usize)> {
     let pair_re = Regex::new(r#"['"]?([A-Za-z0-9_-]+)['"]?\s*:\s*([0-9.]+(?:px|rem|em)?)"#).unwrap();
     let mut out = Vec::new();
     for caps in map_re.captures_iter(css) {
-        let line = css[..caps.get(0).unwrap().start()].lines().count();
+        // Lines are counted from one, the way an editor does. Counting the
+        // lines before the match gives zero for a map at the top of a file.
+        let line = css[..caps.get(0).unwrap().start()].lines().count() + 1;
         for pair in pair_re.captures_iter(&caps[2]) {
             if let Some(px) = parse_length(&pair[2]) {
                 out.push((pair[1].to_string(), px.round(), line));
             }
+        }
+    }
+    out
+}
+
+/// Every key a mixin was called with, such as the `md` in
+/// `@include media-breakpoint-up(md)`.
+///
+/// The caller decides whether a key means anything, by looking it up in the
+/// project's own breakpoint map. A key that is not in the map is somebody
+/// else's mixin and is ignored.
+fn mixin_keys(css: &str) -> Vec<String> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r#"@include\s+[A-Za-z0-9_.-]+\s*\(\s*['"]?([A-Za-z0-9_-]+)['"]?\s*\)"#)
+            .unwrap()
+    });
+    re.captures_iter(css)
+        .map(|caps| caps[1].to_string())
+        .collect()
+}
+
+/// Resolve `map-get($breakpoints, md)` and `map.get($breakpoints, md)`.
+///
+/// How a project with a breakpoint map actually consumes it. Without this the
+/// map was parsed, its widths recorded, and every query that used one was
+/// thrown away as depending on something unknown.
+fn substitute_maps(query: &str, maps: &BTreeMap<String, f64>) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r#"map[-.]get\s*\(\s*\$[A-Za-z0-9_-]+\s*,\s*['"]?([A-Za-z0-9_-]+)['"]?\s*\)"#)
+            .unwrap()
+    });
+    let mut out = query.to_string();
+    for caps in re.captures_iter(query) {
+        if let Some(px) = maps.get(&caps[1]) {
+            out = out.replace(&caps[0], &format!("{px}px"));
         }
     }
     out
@@ -351,6 +443,48 @@ fn pick_representative(group: &[Occurrence]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The layout that used to find nothing: one file defines the widths,
+    /// every other file uses them, and the defining file has no queries of its
+    /// own to be found by.
+    #[test]
+    fn a_variable_defined_in_another_file_resolves() {
+        let mut project = BTreeMap::new();
+        project.insert("tablet-up".to_string(), "900px".to_string());
+        let resolved = substitute("(min-width: $tablet-up)", &project);
+        assert_eq!(widths_in_query(&resolved).len(), 1);
+        assert_eq!(widths_in_query(&resolved)[0].boundary, 900.0);
+    }
+
+    /// How a project with a breakpoint map actually consumes it.
+    #[test]
+    fn a_map_lookup_resolves() {
+        let mut maps = BTreeMap::new();
+        maps.insert("lg".to_string(), 992.0);
+        for query in [
+            "(min-width: map-get($grid-breakpoints, lg))",
+            "(min-width: map.get($grid-breakpoints, lg))",
+            "(min-width: map-get($grid-breakpoints, 'lg'))",
+        ] {
+            let resolved = substitute_maps(query, &maps);
+            let hits = widths_in_query(&resolved);
+            assert_eq!(hits.len(), 1, "{query} -> {resolved}");
+            assert_eq!(hits[0].boundary, 992.0, "{query}");
+        }
+        // A key the project never declared stays unresolved rather than
+        // becoming a made-up width.
+        let untouched = substitute_maps("(min-width: map-get($other, zz))", &maps);
+        assert!(widths_in_query(&untouched).is_empty());
+    }
+
+    #[test]
+    fn a_mixin_call_gives_up_its_key() {
+        let keys = mixin_keys("@include media-breakpoint-up(md) { .a { display: flex; } }");
+        assert_eq!(keys, vec!["md".to_string()]);
+        assert_eq!(mixin_keys("@include mq('tablet') { }"), vec!["tablet".to_string()]);
+        assert!(mixin_keys("@include button-variant($primary, $secondary) { }").is_empty(),
+            "two arguments is not a breakpoint call");
+    }
 
     fn widths(css: &str) -> Vec<(f64, usize)> {
         let mut log = ScanLog::new("test");
