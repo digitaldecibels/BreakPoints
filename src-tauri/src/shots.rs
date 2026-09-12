@@ -44,10 +44,12 @@ pub async fn capture(
     let cropped = crop(&image, &rect, scale)?;
     if looks_blank(&cropped) {
         return Err(format!(
-            "the capture of {name} came back as one flat colour, so it is not a picture of \
-             anything. The usual cause is the window being behind something else or off screen: \
-             bring Break/Points to the front and try again. A page that really is a single \
-             colour reads the same way."
+            "the capture of {name} is a single flat colour, so it is a picture of nothing. \
+             The usual cause is macOS screen recording permission, which this app needs to \
+             capture its own window and which is withdrawn whenever the app is rebuilt: grant \
+             it in System Settings, Privacy and Security, Screen Recording, then restart \
+             Break/Points. A window that is off screen, and a page that really is one colour, \
+             both look the same from here."
         ));
     }
     write_png(app, state, &id, &name, cropped)
