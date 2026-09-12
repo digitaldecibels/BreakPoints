@@ -292,7 +292,9 @@ fn parse_v3(
                 source_file: file.to_string(),
                 line: None,
                 confidence: 0.8,
-                kind: Kind::Framework,
+                // See the note on the v4 path: a default is a guess, and a
+                // guess must not outrank a width measured across nine files.
+                kind: Kind::Inferred,
                 edge: Edge::Min,
                 file_count: 1,
             });
@@ -481,7 +483,12 @@ fn parse_v4(text: &str, file: &str, log: &mut ScanLog) -> Option<FrameworkDetect
                 source_file: file.to_string(),
                 line: None,
                 confidence: 0.8,
-                kind: Kind::Framework,
+                // Inferred, not configured, and not read from a framework file
+                // either. These are the framework's shipped values standing in
+                // for a config nobody could read, and treating them as
+                // configuration meant the project's own measured CSS widths
+                // were left unchecked while five guesses were opened as panels.
+                kind: Kind::Inferred,
                 edge: Edge::Min,
                 file_count: 1,
             });

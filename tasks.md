@@ -391,7 +391,7 @@ are the paths that can quietly break it.
   the case it is right about, which is rem lengths elsewhere in the CSS rather
   than query boundaries. Small, and it matters for trust.
 
-- [ ] **A config the scanner could not read outranks the CSS it could.** When
+- [x] **A config the scanner could not read outranks the CSS it could.** When
   Tailwind's screens cannot be resolved statically, `tailwind.rs` does the
   right thing and emits the shipped defaults with a warning, but it emits them
   as `Kind::Framework`. `generate.rs:120` asks only about the kind, so the
