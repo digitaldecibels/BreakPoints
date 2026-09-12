@@ -12,11 +12,18 @@ npm run tauri dev                              # run it
 npm run tauri build                            # bundle a .app and .dmg
 cd src-tauri && cargo test                     # 150 tests, no window needed
 cd src-tauri && cargo run --example scan -- <folder> [--log]
+python3 scripts/smoke-test.py [--start]     # drive the running app
 ```
 
 `cargo run` on its own opens a blank window. A debug build points the chrome
 webview at the Vite dev URL, so the dev server has to be running, which is what
 `npm run tauri dev` does.
+
+The smoke test is the only thing that exercises the window. The unit tests
+cover the arithmetic and the decisions; the failures this codebase actually
+hits are a command without its permission file, a capability line left out, and
+a panel that is not the width its label claims, and every one of those passes
+`cargo test`. It needs a screen, so it is a local check rather than a CI one.
 
 The scan example is the fastest way to work on a detector. It runs the whole
 scanner against a real folder and prints what each one found, and `--log` adds

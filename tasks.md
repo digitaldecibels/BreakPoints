@@ -266,7 +266,7 @@ are the paths that can quietly break it.
 
 ### Robustness
 
-- [ ] **Nothing tests the window.** There are 184 unit tests and not one that
+- [x] **Nothing tests the window.** There are 184 unit tests and not one that
   starts the app. The failures this codebase actually hits are a missing
   permission file, a missing capability line, and the panel width arithmetic,
   and a smoke test that boots the app, opens a project and asserts each panel's
