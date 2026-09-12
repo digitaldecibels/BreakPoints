@@ -157,6 +157,21 @@ pub struct ScanReport {
     pub log_path: Option<String>,
     /// True when the walk hit a budget and stopped early.
     pub truncated: bool,
+    /// What was looked at and not counted, with a reason and a tally.
+    ///
+    /// The log has always recorded every one of these, and nothing showed
+    /// them, so "No breakpoints found" was a dead end instead of a report you
+    /// could act on.
+    #[serde(default)]
+    pub discarded: Vec<DiscardCount>,
+}
+
+/// One reason something was not counted, and how often it happened.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscardCount {
+    pub reason: String,
+    pub count: usize,
 }
 
 /// What one detector produced. The scanner merges these.
@@ -166,4 +181,5 @@ pub struct DetectorOutput {
     pub breakpoints: Vec<BreakpointDiscovery>,
     pub dev_servers: Vec<DevServerDiscovery>,
     pub warnings: Vec<ScanWarning>,
+    pub discarded: Vec<DiscardCount>,
 }

@@ -84,6 +84,7 @@ pub fn scan(root: &Path, mut on_row: impl FnMut(ScanRow)) -> ScanOutcome {
     let mut breakpoints = Vec::new();
     let mut dev_servers = Vec::new();
     let mut warnings = Vec::new();
+    let mut discarded: Vec<types::DiscardCount> = Vec::new();
 
     // Framework configuration first, because it outranks everything the CSS
     // scan can find and changes how the CSS results are presented.
@@ -152,6 +153,7 @@ pub fn scan(root: &Path, mut on_row: impl FnMut(ScanRow)) -> ScanOutcome {
         frameworks.extend(deduped);
         breakpoints.extend(output.breakpoints);
         warnings.extend(output.warnings);
+        discarded.extend(output.discarded);
     }
 
     // Stylesheets.
@@ -186,6 +188,7 @@ pub fn scan(root: &Path, mut on_row: impl FnMut(ScanRow)) -> ScanOutcome {
     }
     breakpoints.extend(css_output.breakpoints);
     warnings.extend(css_output.warnings);
+    discarded.extend(css_output.discarded);
 
     // Dev server.
     let at = std::time::Instant::now();
@@ -258,6 +261,7 @@ pub fn scan(root: &Path, mut on_row: impl FnMut(ScanRow)) -> ScanOutcome {
         breakpoint_source_file,
         log_path: None,
         truncated: index.truncated,
+        discarded,
     };
 
     ScanOutcome { report, rows, log }
@@ -572,6 +576,7 @@ mod tests {
             breakpoint_source_file: "src/app.css".into(),
             log_path: None,
             truncated: false,
+            discarded: vec![],
         };
         report.breakpoints.push(bp(700.0, None, Kind::Css, 0.5));
         report.breakpoints[0].source_file = "src/app.css".into();

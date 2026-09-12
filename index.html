@@ -519,6 +519,15 @@
                something you could act on. -->
           <p x-show="limits" class="mt-1 text-[12px] leading-5 text-warn" x-text="limits"></p>
 
+          <!-- What was looked at and not counted. Two lines here turn "No
+               breakpoints found" from a dead end into something you can act
+               on, and the scanner has always had the numbers. -->
+          <div x-show="discarded.length" class="mt-1.5 space-y-0.5">
+            <template x-for="line in discarded" :key="line">
+              <div class="text-[11px] leading-4 text-text-faint" x-text="line"></div>
+            </template>
+          </div>
+
           <!-- Detector rows, appearing as each one finishes. -->
           <div class="mt-5 space-y-2">
             <template x-for="(row, index) in $store.bp.scan.rows" :key="index">

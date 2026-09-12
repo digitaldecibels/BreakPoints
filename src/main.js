@@ -96,6 +96,17 @@ Alpine.data("scanSheet", () => ({
     return notes.join(" ");
   },
 
+  /** What was looked at and not counted. The log has always recorded this and
+   *  nothing showed it, so an empty result was a dead end. */
+  get discarded() {
+    const report = Alpine.store("bp").scan.report;
+    if (!report?.discarded?.length) return [];
+    return [...report.discarded]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 4)
+      .map((d) => `${d.count} ${d.reason}`);
+  },
+
   get recommendedLabel() {
     const store = Alpine.store("bp");
     return store.scan.fallback

@@ -434,7 +434,7 @@ are the paths that can quietly break it.
   boot, which is the path meant to be instant. Fold in the modification times
   of the files the breakpoints actually came from. Small.
 
-- [ ] **Say what was discarded, in the window and not only in the log.** The
+- [x] **Say what was discarded, in the window and not only in the log.** The
   scan log already records every skip and every discard with a reason, and the
   sheet shows none of it. Two counts in the empty state, "34 container queries,
   which are not viewport widths" and "18 queries needed a value defined in

@@ -131,7 +131,7 @@ fn blank_but_newlines(c: char) -> char {
 }
 
 use super::log::ScanLog;
-use super::types::{BreakpointDiscovery, DetectorOutput, Edge, Kind};
+use super::types::{BreakpointDiscovery, DetectorOutput, DiscardCount, Edge, Kind};
 use super::units::{overrides_root_font_size, parse_length, widths_in_query};
 use super::walk::{FileIndex, ReadBudget};
 
@@ -215,6 +215,8 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     let mut out = DetectorOutput::default();
     let mut per_width: BTreeMap<i64, Occurrence> = BTreeMap::new();
     let mut files_read = 0usize;
+    // Why things were not counted, tallied so the window can say so.
+    let mut discarded: BTreeMap<String, usize> = BTreeMap::new();
     let mut root_override: Option<(String, String)> = None;
 
     // Read once, understand the whole project, then resolve.
@@ -286,10 +288,32 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
         // SCSS itself does.
         let mut variables = project_vars.clone();
         variables.extend(scss_lengths(text));
+        // Container queries are about an element's width, not the viewport, so
+        // they must never become panels. That makes them invisible rather than
+        // discarded, and a project that has moved its layout to them looks
+        // like a project with no breakpoints at all.
+        let containers = text.matches("@container").count();
+        if containers > 0 {
+            *discarded
+                .entry("container queries, which are about an element and not the viewport".into())
+                .or_default() += containers;
+        }
+
         for (query, offset) in media_preludes(text) {
             let resolved = substitute_maps(&substitute(&query, &variables), &project_maps);
             let hits = widths_in_query(&resolved);
             if hits.is_empty() {
+                let reason = if resolved.contains('$') || resolved.contains("#{") {
+                    "needed a value no file in the project defines"
+                } else if resolved.contains("calc(") {
+                    "the width is a calc(), which only the browser can work out"
+                } else if resolved.contains("var(") {
+                    "the width is a custom property, which a media query cannot use"
+                } else {
+                    "no width in the query, such as print or a colour scheme"
+                };
+                *discarded.entry(reason.to_string()).or_default() += 1;
+
                 if resolved.contains('$') || resolved.contains("#{") {
                     log.discarded(
                         &file,
@@ -409,6 +433,10 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     }
 
     out.breakpoints = cluster(per_width.into_values().collect(), log);
+    out.discarded = discarded
+        .into_iter()
+        .map(|(reason, count)| DiscardCount { reason, count })
+        .collect();
     out
 }
 
