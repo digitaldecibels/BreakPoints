@@ -349,7 +349,7 @@ are the paths that can quietly break it.
   `.less` covers a lot of older Drupal and WordPress themes. Small, and it is
   the same change as above without the extraction.
 
-- [ ] **Commented-out queries count as real ones.** The prelude regex runs over
+- [x] **Commented-out queries count as real ones.** The prelude regex runs over
   raw text, so a query inside a comment matches and inflates the file count,
   which is the only confidence signal the CSS side has. `jsobj::blank_comments`
   already blanks comments while preserving offsets, so this is one line of

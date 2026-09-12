@@ -25,6 +25,68 @@ pub fn readable_extensions() -> Vec<&'static str> {
     STYLESHEETS.iter().chain(COMPONENTS.iter()).copied().collect()
 }
 
+/// Blank out comments, keeping every other character in place.
+///
+/// A query inside a comment used to be matched as a real one, which inflated
+/// the file count, and the file count is the only confidence signal the CSS
+/// side has. Offsets and newlines are preserved so reported line numbers stay
+/// true.
+///
+/// `//` starts a comment in SCSS, Sass and Less but not in plain CSS, and it
+/// also appears in the middle of an unquoted `url(http://...)`. So a line
+/// comment is only recognised when the two slashes do not follow a colon,
+/// which is what tells a protocol from a comment.
+pub fn blank_comments(css: &str) -> String {
+    let chars: Vec<char> = css.chars().collect();
+    let mut out = String::with_capacity(css.len());
+    let mut i = 0;
+    let mut quote: Option<char> = None;
+
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            out.push(c);
+            if c == '\\' && i + 1 < chars.len() {
+                out.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
+            if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            quote = Some(c);
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        if c == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+            while i < chars.len() {
+                out.push(if chars[i] == '\n' { '\n' } else { ' ' });
+                let ended = i > 0 && chars[i - 1] == '*' && chars[i] == '/';
+                i += 1;
+                if ended {
+                    break;
+                }
+            }
+            continue;
+        }
+        if c == '/' && i + 1 < chars.len() && chars[i + 1] == '/' && chars.get(i.wrapping_sub(1)) != Some(&':') {
+            while i < chars.len() && chars[i] != '\n' {
+                out.push(' ');
+                i += 1;
+            }
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
 /// The CSS out of a single-file component, or the whole text for a plain
 /// stylesheet.
 ///
@@ -146,7 +208,7 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
         // pulled out before anything looks at it. Checking the whole file for
         // compiled output would reject a component with one long template
         // line.
-        let text = stylesheet_part(rel, &raw);
+        let text = blank_comments(&stylesheet_part(rel, &raw));
         if text.trim().is_empty() {
             continue;
         }
@@ -526,6 +588,35 @@ fn pick_representative(group: &[Occurrence]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A query inside a comment is not a breakpoint, and it used to be counted
+    /// as one, which inflated the only confidence signal this detector has.
+    #[test]
+    fn a_commented_out_query_is_not_a_query() {
+        let css = "/* @media (min-width: 900px) { } */\n@media (min-width: 700px) { .a { color: red; } }\n// @media (min-width: 1100px) { }\n";
+        let blanked = blank_comments(css);
+        let found: Vec<f64> = media_preludes(&blanked)
+            .into_iter()
+            .flat_map(|(q, _)| widths_in_query(&q))
+            .map(|hit| hit.boundary)
+            .collect();
+        assert_eq!(found, vec![700.0], "only the live one");
+        assert_eq!(blanked.lines().count(), css.lines().count(), "line for line");
+    }
+
+    /// An unquoted URL has two slashes in it and is not a comment.
+    #[test]
+    fn a_url_survives_the_comment_blanker() {
+        let css = "@font-face { src: url(http://example.test/f.woff2); }\n@media (min-width: 820px) { .a { color: red; } }\n";
+        let blanked = blank_comments(css);
+        assert!(blanked.contains("example.test"), "{blanked}");
+        let found: Vec<f64> = media_preludes(&blanked)
+            .into_iter()
+            .flat_map(|(q, _)| widths_in_query(&q))
+            .map(|hit| hit.boundary)
+            .collect();
+        assert_eq!(found, vec![820.0]);
+    }
 
     /// A component is markup with a style block in it. Only the block is CSS,
     /// and a line number has to still mean the line in the file.
