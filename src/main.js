@@ -96,13 +96,13 @@ Alpine.data("scanSheet", () => ({
     if (typeof entry === "string") return entry;
     switch (entry.event) {
       case "parse.failure":
-        return `${entry.file}${entry.line ? `:${entry.line}` : ""} — ${entry.reason} (${entry.step})\n    ${entry.snippet ?? ""}`;
+        return `${entry.file}${entry.line ? `:${entry.line}` : ""}: ${entry.reason} (${entry.step})\n    ${entry.snippet ?? ""}`;
       case "value.discarded":
-        return `${entry.file} — discarded ${entry.value}: ${entry.reason}`;
+        return `${entry.file}: discarded ${entry.value}, ${entry.reason}`;
       case "file.skip":
-        return `${entry.file} — skipped: ${entry.reason}`;
+        return `${entry.file}: skipped, ${entry.reason}`;
       case "file.read":
-        return `${entry.file} — read ${entry.bytes} bytes`;
+        return `${entry.file}: read ${entry.bytes} bytes`;
       case "devurl.candidate":
         return `${entry.url} from ${entry.source} (confidence ${entry.confidence})`;
       case "detector.start":
