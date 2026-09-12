@@ -161,12 +161,49 @@ const IGNORE_MARKERS: &[&str] = &[
 /// run 20 to 40 bytes per line; minified bundles run 30,000 to 90,000. The
 /// threshold sits three orders of magnitude away from both.
 pub fn looks_compiled(text: &str) -> bool {
+    // Tells that do not depend on the file being minified.
+    //
+    // The line-length test below only catches output that was minified, and a
+    // build run without minification, which is every dev build and a plain
+    // Tailwind CLI run, reads as source. For Tailwind that meant the generated
+    // `--breakpoint-*` block was read back as if the project had declared it;
+    // for everything else the compiled file and its own source both counted,
+    // doubling the confidence of every width in the project.
+    if text.contains("/*! tailwindcss v") || text.contains("sourceMappingURL=") {
+        return true;
+    }
+    // Tailwind's output is full of its own internal custom properties. A
+    // handwritten file might mention one or two; it does not contain dozens.
+    if text.matches("--tw-").count() > 20 {
+        return true;
+    }
+
     // Small files are exempt whatever their shape, so a terse handwritten
     // stylesheet is never mistaken for a build artefact.
     if text.len() < 20_000 {
         return false;
     }
     text.len() / text.lines().count().max(1) > 400
+}
+
+/// Whether a `.css` file sits beside a source file it was plainly built from.
+///
+/// `app.css` next to `app.scss` is output, however it is formatted, and
+/// reading both counts every width in it twice.
+pub fn has_a_source_sibling(rel: &std::path::Path, index: &FileIndex) -> bool {
+    if rel.extension().and_then(|e| e.to_str()) != Some("css") {
+        return false;
+    }
+    let Some(stem) = rel.file_stem().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    index.files.iter().any(|other| {
+        other.file_stem().and_then(|s| s.to_str()) == Some(stem)
+            && matches!(
+                other.extension().and_then(|e| e.to_str()),
+                Some("scss") | Some("sass") | Some("less") | Some("pcss") | Some("postcss")
+            )
+    })
 }
 
 pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> DetectorOutput {
@@ -213,7 +250,11 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
             continue;
         }
         if looks_compiled(&text) {
-            log.skip(&file, "one enormous line, so it is a compiled bundle rather than source");
+            log.skip(&file, "it reads as build output rather than something a person wrote");
+            continue;
+        }
+        if has_a_source_sibling(rel, index) {
+            log.skip(&file, "there is a source file of the same name beside it, so this is what was built from it");
             continue;
         }
         files_read += 1;

@@ -355,7 +355,7 @@ are the paths that can quietly break it.
   already blanks comments while preserving offsets, so this is one line of
   reuse.
 
-- [ ] **Unminified build output is read as source.** `looks_compiled` needs
+- [x] **Unminified build output is read as source.** `looks_compiled` needs
   more than 400 bytes per line, so any build run without minification, which
   includes a plain Tailwind CLI run, most dev builds and Drupal's own
   unaggregated output, passes as source. For Tailwind that means generated
