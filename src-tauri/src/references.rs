@@ -22,6 +22,40 @@ pub fn attach(
     let id = crate::canvas::resolve_id(state, panel)
         .ok_or_else(|| format!("no panel matches \"{panel}\""))?;
 
+    // Checked here, before anything is written.
+    //
+    // This lands a line in `breakpoints.md`, which is a file in somebody's
+    // repository and quite possibly a client's. The same two checks already
+    // existed in `diff`, which is to say they ran when the reference was next
+    // compared, which can be days after the typo was committed.
+    //
+    // A Figma node is a reference to something that is not on this disk, so it
+    // is exempt from both.
+    let is_remote = reference.starts_with("figma:") || reference.starts_with("http");
+    if !is_remote {
+        let root = state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|p| p.root.clone())
+            .ok_or("no project is open, so a relative reference has nothing to be relative to")?;
+        let path = root.join(reference);
+        // Existence first. `inside_project` resolves the real path, which a
+        // file that is not there cannot have, so asking about containment
+        // first reported a typo inside the project as being outside it.
+        if !path.is_file() {
+            return Err(format!(
+                "there is no file at {reference}, so there would be nothing to compare against"
+            ));
+        }
+        if !project::inside_project(&root, &path) {
+            return Err(format!(
+                "{reference} is outside the project, and a reference has to live inside it"
+            ));
+        }
+    }
+
     let viewports: Vec<crate::model::Viewport> = {
         let mut canvas = state.canvas.lock().unwrap();
         for target in canvas.panels.iter_mut() {

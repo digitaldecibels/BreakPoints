@@ -239,7 +239,7 @@ are the paths that can quietly break it.
   your panels. One `else` branch. While there, the old debouncer is dropped
   while the mutex is held, which joins its thread under the lock.
 
-- [ ] **A design reference is written into the repo unchecked.**
+- [x] **A design reference is written into the repo unchecked.**
   `references::attach` writes the path straight into `breakpoints.md`, which is
   a file in someone else's repository, without checking that it exists or that
   it is inside the project root. Both checks already exist and run at compare
