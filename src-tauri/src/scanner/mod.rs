@@ -445,7 +445,50 @@ fn side(entry: &BreakpointDiscovery) -> ConflictSide {
 
 /// Reopening a project should be instant, so a report is kept against the
 /// mtimes of the files that could change it.
-static CACHE: Mutex<Option<(String, String, ScanReport)>> = Mutex::new(None);
+/// The project root, the key, the stamps of the files the answer came from,
+/// and the answer.
+static CACHE: Mutex<Option<(String, String, Vec<String>, ScanReport)>> = Mutex::new(None);
+
+/// A stamp for one file: when it changed and how big it is.
+fn stamp(path: &Path, label: &str) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    let at = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Some(format!("{label}:{at}:{}", meta.len()))
+}
+
+/// Stamp a list of files relative to the project root.
+///
+/// Used to re-check the exact files an answer came from. The key below covers
+/// ten names at the root of the project and no stylesheet, no
+/// `*.breakpoints.yml` and no nested framework config, so editing the file the
+/// breakpoints actually came from and reopening the project returned the old
+/// answer with nothing to say it was old.
+fn stamps_for(root: &Path, files: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter_map(|rel| stamp(&root.join(rel), rel))
+        .collect()
+}
+
+/// Every file an answer depended on, so a change to any of them invalidates it.
+fn sources_of(report: &ScanReport) -> Vec<String> {
+    let mut files: Vec<String> = report
+        .breakpoints
+        .iter()
+        .map(|b| b.source_file.clone())
+        .chain(report.frameworks.iter().map(|f| f.source_file.clone()))
+        .filter(|f| !f.is_empty())
+        .collect();
+    files.push(report.breakpoint_source_file.clone());
+    files.sort();
+    files.dedup();
+    files
+}
 
 pub fn cache_key(root: &Path) -> String {
     let mut parts = Vec::new();
@@ -461,15 +504,8 @@ pub fn cache_key(root: &Path) -> String {
         "breakpoints.md",
         ".breakpoints.json",
     ] {
-        let path = root.join(name);
-        if let Ok(meta) = std::fs::metadata(&path) {
-            let stamp = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            parts.push(format!("{name}:{stamp}:{}", meta.len()));
+        if let Some(stamp) = stamp(&root.join(name), name) {
+            parts.push(stamp);
         }
     }
     util::short_hash(&parts)
@@ -477,10 +513,18 @@ pub fn cache_key(root: &Path) -> String {
 
 pub fn cached(root: &Path) -> Option<ScanReport> {
     let key = cache_key(root);
-    let root = root.to_string_lossy().to_string();
+    let root_label = root.to_string_lossy().to_string();
     let cache = CACHE.lock().unwrap();
     match &*cache {
-        Some((cached_root, cached_key, report)) if *cached_root == root && *cached_key == key => {
+        Some((cached_root, cached_key, sources, report))
+            if *cached_root == root_label && *cached_key == key =>
+        {
+            // The files the answer came from are re-stamped, not just the ten
+            // names at the root. An edit to the stylesheet or the yaml that
+            // produced these widths has to count as a change.
+            if *sources != stamps_for(root, &sources_of(report)) {
+                return None;
+            }
             Some(report.clone())
         }
         _ => None,
@@ -492,12 +536,62 @@ pub fn remember(root: &Path, report: &ScanReport) {
     *CACHE.lock().unwrap() = Some((
         root.to_string_lossy().to_string(),
         key,
+        stamps_for(root, &sources_of(report)),
         report.clone(),
     ));
 }
 
 #[cfg(test)]
 mod tests {
+    /// The answer is cached against the files it came from, not only against
+    /// ten names at the root of the project. Editing the stylesheet the widths
+    /// came from used to leave the old answer in place with nothing to say it
+    /// was old.
+    #[test]
+    fn a_cached_answer_is_dropped_when_its_source_changes() {
+        use std::io::Write;
+        let root = std::env::temp_dir().join(format!("bp-cache-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let stylesheet = root.join("src/app.css");
+        std::fs::write(&stylesheet, "@media (min-width: 700px) { .a { color: red; } }\n").unwrap();
+
+        let mut report = ScanReport {
+            project_root: root.to_string_lossy().to_string(),
+            project_name: "t".into(),
+            frameworks: vec![],
+            breakpoints: vec![],
+            dev_servers: vec![],
+            conflicts: vec![],
+            warnings: vec![],
+            scanned_files: 1,
+            skipped_files: 0,
+            css_files: 1,
+            duration_ms: 1,
+            source_hash: "x".into(),
+            breakpoint_source_file: "src/app.css".into(),
+            log_path: None,
+            truncated: false,
+        };
+        report.breakpoints.push(bp(700.0, None, Kind::Css, 0.5));
+        report.breakpoints[0].source_file = "src/app.css".into();
+
+        remember(&root, &report);
+        assert!(cached(&root).is_some(), "just stored");
+
+        // Change the file the answer came from.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let mut f = std::fs::File::create(&stylesheet).unwrap();
+        writeln!(f, "@media (min-width: 900px) {{ .a {{ color: red; }} }}").unwrap();
+        drop(f);
+
+        assert!(
+            cached(&root).is_none(),
+            "the stylesheet moved, so the cached answer is no longer the answer"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     use super::*;
 
     fn found(width: f64, file: &str) -> types::BreakpointDiscovery {

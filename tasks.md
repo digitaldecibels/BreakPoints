@@ -425,7 +425,7 @@ are the paths that can quietly break it.
   count read, and after a budget stop those two diverge a lot. That line is the
   one place a person learns how much of their project was looked at. Small.
 
-- [ ] **An answer can be stale on reopen.** The cache key is ten root-level
+- [x] **An answer can be stale on reopen.** The cache key is ten root-level
   filenames and includes no stylesheet, no `*.breakpoints.yml` and no nested
   framework config. Edit the file the breakpoints came from while the app is
   closed, reopen the project, and the previous answer comes back with no sign
