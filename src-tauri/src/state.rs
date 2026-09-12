@@ -366,9 +366,17 @@ impl AppState {
         // Nothing is held in flight here. This is the window's own copy
         // button, so the notes are on somebody's clipboard by the time this
         // returns and there is no reply to lose.
-        self.in_flight.lock().unwrap().clear();
+        let had_in_flight = {
+            let mut in_flight = self.in_flight.lock().unwrap();
+            let had = !in_flight.is_empty();
+            in_flight.clear();
+            had
+        };
         let taken = std::mem::take(&mut *self.reports.lock().unwrap());
-        if !taken.is_empty() {
+        // Persisted whenever anything changed, not only when something was
+        // handed over. Clearing an in-flight batch and not writing that down
+        // left it on disk to be restored to the queue at the next start.
+        if !taken.is_empty() || had_in_flight {
             self.persist_reports();
         }
         taken
@@ -434,7 +442,13 @@ impl AppState {
                 true
             });
         }
+        let returning_any = !returning.is_empty();
         self.requeue_reports(returning);
+        // `requeue_reports` writes only when it puts something back, and
+        // settling can change the in-flight list without returning anything.
+        if !returning_any {
+            self.persist_reports();
+        }
     }
 
     /// How many notes are waiting, whoever they are addressed to. The toolbar
