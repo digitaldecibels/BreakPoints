@@ -531,8 +531,6 @@ mod tests {
         assert_eq!(breakpoint_source_file(&[], &[]), "css media queries");
     }
 
-    use super::*;
-
     fn bp(width: f64, name: Option<&str>, kind: Kind, confidence: f64) -> BreakpointDiscovery {
         BreakpointDiscovery {
             width,

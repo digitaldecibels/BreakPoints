@@ -214,6 +214,12 @@ pub fn set_viewport(
         }
     }
     canvas::relayout(app, state);
+
+    // The page only volunteers its width when it loads, so after a deliberate
+    // resize the last thing it said is stale and would read as a mismatch.
+    // Ask it again rather than leaving a false alarm on the label.
+    canvas::confirm_width(app.clone(), state.clone(), id.clone());
+
     list_panels(state)
         .into_iter()
         .find(|p| p.id == id)

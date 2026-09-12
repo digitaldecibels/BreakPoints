@@ -940,22 +940,25 @@ pub fn relayout(app: &AppHandle, state: &Shared) {
     let scroll_x = canvas.scroll_x.min((total - 100.0).max(0.0));
     canvas.scroll_x = scroll_x;
     canvas.total_width = total;
-    let hidden = canvas.panels_hidden;
 
     for (panel, place) in canvas.panels.iter_mut().zip(places) {
         panel.home_x = place.home_x;
         panel.scale = place.scale;
         panel.width = place.width;
         panel.height = place.height;
-        if !hidden {
-            let _ = panel.webview.set_zoom(place.scale);
-            let _ = panel
-                .webview
-                .set_position(LogicalPosition::new(place.home_x - scroll_x, PANEL_TOP));
-            let _ = panel
-                .webview
-                .set_size(LogicalSize::new(place.width, place.height));
-        }
+        // Applied even while the panels are hidden. Skipping it left the record
+        // and the webview disagreeing for as long as a sheet stayed open, so
+        // `set_viewport` returned a width the page did not have and anything
+        // that measured in the interval measured the old one. Setting a frame
+        // does not reveal a hidden webview; only `show` does, and that stays
+        // in `set_panels_hidden`.
+        let _ = panel.webview.set_zoom(place.scale);
+        let _ = panel
+            .webview
+            .set_position(LogicalPosition::new(place.home_x - scroll_x, PANEL_TOP));
+        let _ = panel
+            .webview
+            .set_size(LogicalSize::new(place.width, place.height));
     }
     drop(canvas);
     emit_canvas(app, state);

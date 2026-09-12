@@ -73,7 +73,7 @@ are the paths that can quietly break it.
   `about:blank`, apply the zoom, then navigate. Medium, and it needs testing
   against the panel that has never committed a navigation.
 
-- [ ] **A width can be reported without being applied.** `relayout` updates the
+- [x] **A width can be reported without being applied.** `relayout` updates the
   struct and skips the three webview calls while the panels are hidden
   (`canvas.rs:869`). `tools::set_viewport` changes a declared width, calls
   `relayout`, and returns a `PanelInfo` stating the new one. With a sheet open
