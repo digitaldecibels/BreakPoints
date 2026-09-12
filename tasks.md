@@ -247,7 +247,7 @@ are the paths that can quietly break it.
   `attach`. Small, and it matters because writing that file is meant to be a
   deliberate act.
 
-- [ ] **A capture leaves the row where it finished.** `bring_into_view` pans
+- [x] **A capture leaves the row where it finished.** `bring_into_view` pans
   the row to put a panel on screen and nothing pans it back, so capturing every
   panel walks the row and leaves you wherever the last one was. The same
   function saves the scroll sync setting, forces it off, and writes the old

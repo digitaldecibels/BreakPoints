@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 
 use image::RgbaImage;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::canvas;
 use crate::state::Shared;
@@ -79,6 +79,11 @@ async fn capture_full_page(
     /// Long enough for a lazily loaded image to arrive and paint.
     const SETTLE_MS: u64 = 220;
 
+    // Noted before anything moves the row. `bring_into_view` pans it to reach
+    // the panel, so reading this afterwards would record where the capture put
+    // the row rather than where the person left it.
+    let scroll_was_at = state.canvas.lock().unwrap().scroll_x;
+
     let (rect, name) = bring_into_view(app, state, id).await?;
     let scale = window_scale(app);
 
@@ -103,7 +108,8 @@ async fn capture_full_page(
     let per_css = rect.height / view_css;
     let (tiles, _, truncated) = stitch_plan(total_css, view_css, MAX_TILES);
 
-    // Restore these whatever happens below.
+    // Scroll sync is suspended for the walk, so the other panels do not follow
+    // this one down the page, and put back afterwards.
     let sync_was_on = {
         let mut canvas = state.canvas.lock().unwrap();
         let was_on = canvas.sync_on;
@@ -118,8 +124,18 @@ async fn capture_full_page(
 
     {
         let mut canvas = state.canvas.lock().unwrap();
-        canvas.sync_on = sync_was_on;
+        // Only put it back if nothing else changed it while we were away. A
+        // person or an agent toggling sync during the several seconds a long
+        // page takes should not have that toggle silently undone.
+        if !canvas.sync_on {
+            canvas.sync_on = sync_was_on;
+        }
     }
+    // Put the row back, and tell the chrome, or the scroll strip stays where
+    // the capture left it and pushes that position straight back.
+    crate::canvas::set_scroll(state, scroll_was_at);
+    let _ = app.emit("canvas:scroll", scroll_was_at);
+    crate::canvas::emit_canvas(app, state);
     let _ = crate::tools::eval_js(
         state,
         id,
