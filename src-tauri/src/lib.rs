@@ -24,6 +24,7 @@ pub mod shots;
 pub mod state;
 pub mod tools;
 pub mod util;
+pub mod verify;
 pub mod watcher;
 
 use std::sync::Arc;

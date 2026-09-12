@@ -459,6 +459,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "load_profile",
     "audit_all",
     "audit_accessibility",
+    "verify_breakpoints",
     "attach_reference",
     "get_references",
     "diff_panel",
@@ -507,6 +508,16 @@ pub async fn call_tool(
 
         "audit_accessibility" => {
             let report = access::audit_all(state).await?;
+            Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
+        }
+
+        "verify_breakpoints" => {
+            let panel = args
+                .get("panel")
+                .and_then(Value::as_str)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "0".to_string());
+            let report = crate::verify::verify(state, &panel).await?;
             Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
         }
 
@@ -871,6 +882,19 @@ pub fn tool_definitions() -> Vec<Value> {
             "name": "get_references",
             "description": "Which reference frame belongs to which panel.",
             "inputSchema": schema(json!({}), &[]),
+        }),
+        json!({
+            "name": "verify_breakpoints",
+            "description": "Read the media queries out of a panel's live stylesheet and compare them to the widths the row is open at. Everything else in this app infers breakpoints from source; this asks the browser that actually parsed the CSS. Says which open widths the page really changes at, and which widths the page changes at that no panel covers. Needs a panel pointed at a running site.",
+            "inputSchema": schema(
+                json!({
+                    "panel": {
+                        "type": "string",
+                        "description": "Index or name. Defaults to the first panel, since every panel loads the same stylesheets.",
+                    }
+                }),
+                &[],
+            ),
         }),
         json!({
             "name": "audit_accessibility",

@@ -497,7 +497,7 @@ are the paths that can quietly break it.
   closing brace gives the byte length of the body. Better signal, from data
   already in hand. Medium.
 
-- [ ] **Ask the page, not the codebase.** There is a real browser open at every
+- [x] **Ask the page, not the codebase.** There is a real browser open at every
   width holding the fully resolved stylesheet: the preprocessor has run,
   imports are resolved, custom media is expanded, and container queries are
   distinguishable from viewport ones. Reading the media rules out of the page is

@@ -536,6 +536,20 @@ would be tidier, but a page with forty violations would bury the two notes a
 person actually wrote, and those notes are the ones with a human judgement in
 them.
 
+**Asking the page, rather than the code.** `verify_breakpoints` reads the media
+rules out of a panel's live stylesheet and compares them to the widths the row
+is open at. Everything else in this app infers breakpoints from source, which
+is a model of what the browser will do; a panel holds what the browser actually
+did, with the preprocessor run, imports followed and container queries
+distinguishable because the engine parsed them. It is a check rather than a
+detector: it needs a running site, and the scanner has to work on a folder
+before anything is running.
+
+On the Bucknell row it reports that five of the seven open widths have rules
+behind them and two, 375 and 550, have none. A cross-origin stylesheet cannot
+be read at all, and the report says how many were skipped for that reason so a
+width is never called missing on the strength of a sheet nobody could see.
+
 Lighthouse is the wrong tool here and always will be: it drives Chrome over the
 DevTools Protocol, and a panel is a WKWebView.
 
