@@ -149,6 +149,11 @@ const IGNORE_MARKERS: &[&str] = &[
     "output.css",
 ];
 
+/// Whether a path names something that is output, vendored or minified.
+pub fn is_ignored_by_name(file: &str) -> bool {
+    IGNORE_MARKERS.iter().any(|m| file.contains(m))
+}
+
 /// Is this a compiled bundle rather than something a person wrote?
 ///
 /// Names are not enough: a real project had 186KB of Astro's docs theme in
@@ -226,7 +231,7 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
 
     for rel in index.by_extension(&readable_extensions()) {
         let file = rel.to_string_lossy().to_string();
-        if IGNORE_MARKERS.iter().any(|m| file.contains(m)) {
+        if is_ignored_by_name(&file) {
             log.skip(&file, "compiled, vendored or minified output");
             continue;
         }

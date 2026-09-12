@@ -55,6 +55,23 @@ pub fn skip_hidden(name: &str) -> bool {
     name.starts_with('.') && name != ".ddev"
 }
 
+/// Drupal's public files directory, `sites/*/files`.
+///
+/// It holds uploads and, on a long-lived site, hundreds of aggregated
+/// stylesheets under `sites/default/files/css/`. `.gitignore` usually covers
+/// it, but only inside a git repository, and a client folder delivered as a
+/// zip or a fresh `composer create-project` checkout is not one.
+pub fn is_drupal_public_files(path: &Path) -> bool {
+    if path.file_name().and_then(|n| n.to_str()) != Some("files") {
+        return false;
+    }
+    path.parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        == Some("sites")
+}
+
 /// A Drupal docroot's `core` is Drupal itself: thousands of stylesheets and a
 /// pile of `*.breakpoints.yml` that belong to core, not to this site.
 pub fn is_drupal_core(path: &Path) -> bool {
@@ -143,7 +160,7 @@ impl FileIndex {
                 if SKIP_DIRS.contains(&name.as_ref()) || skip_hidden(&name) {
                     return false;
                 }
-                !is_drupal_core(entry.path())
+                !is_drupal_core(entry.path()) && !is_drupal_public_files(entry.path())
             })
             .build();
 
@@ -264,16 +281,30 @@ impl FileIndex {
 /// stylesheets are cheap and one 8MB compiled bundle is not.
 pub struct ReadBudget {
     remaining: usize,
+    /// What has already been read, so a second detector asking for the same
+    /// file costs nothing.
+    ///
+    /// Every stylesheet used to be read and charged twice: the Tailwind
+    /// detector reads the whole corpus before deciding it does not want most
+    /// of it, and the CSS detector then reads it all again. That halved the
+    /// effective budget and doubled the disk work, and on a heavy project the
+    /// CSS detector could be handed a budget that was already spent, at which
+    /// point it reported nothing and the log blamed files nobody had opened.
+    seen: std::collections::HashMap<PathBuf, String>,
 }
 
 impl ReadBudget {
     pub fn new() -> Self {
         Self {
             remaining: MAX_CSS_BYTES,
+            seen: std::collections::HashMap::new(),
         }
     }
 
     pub fn read(&mut self, index: &FileIndex, rel: &Path, log: &mut ScanLog) -> Option<String> {
+        if let Some(text) = self.seen.get(rel) {
+            return Some(text.clone());
+        }
         let display = rel.to_string_lossy().to_string();
         if self.remaining == 0 {
             log.skip(&display, "read budget of 10MB is spent");
@@ -288,7 +319,13 @@ impl ReadBudget {
         };
         self.remaining = self.remaining.saturating_sub(text.len());
         log.read(&display, text.len());
+        self.seen.insert(rel.to_path_buf(), text.clone());
         Some(text)
+    }
+
+    /// How much of the budget is left, for a test or a log line.
+    pub fn remaining(&self) -> usize {
+        self.remaining
     }
 }
 
@@ -307,6 +344,19 @@ pub fn rel_string(root: &Path, path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Drupal's public files hold uploads and hundreds of aggregated
+    /// stylesheets. Gitignore covers them, but only inside a git repository,
+    /// and a client folder delivered as a zip is not one.
+    #[test]
+    fn drupal_public_files_are_skipped_but_other_files_directories_are_not() {
+        use std::path::Path;
+        assert!(is_drupal_public_files(Path::new("web/sites/default/files")));
+        assert!(is_drupal_public_files(Path::new("docroot/sites/example.com/files")));
+        assert!(!is_drupal_public_files(Path::new("src/files")));
+        assert!(!is_drupal_public_files(Path::new("web/sites/default")));
+        assert!(!is_drupal_public_files(Path::new("app/assets/files")));
+    }
+
     use super::*;
 
     #[test]

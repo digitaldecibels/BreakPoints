@@ -68,7 +68,12 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
         // Anything already compiled is output, not source, and a hidden
         // directory is tooling: Tailwind's own probe writes a CSS file that
         // otherwise reads as a second config.
-        if name.contains("dist/") || name.contains("build/") || super::css::in_hidden_directory(rel) {
+        // The same markers the CSS detector uses, applied before the file is
+        // opened. Without them this pass read every minified and aggregated
+        // stylesheet in full, up to 2MB each, and only then decided it did not
+        // want them. On a Drupal site that is how the read budget was spent on
+        // files no detector wanted.
+        if super::css::is_ignored_by_name(&name) || super::css::in_hidden_directory(rel) {
             continue;
         }
         let Some(text) = budget.read(index, rel, log) else { continue };

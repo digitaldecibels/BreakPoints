@@ -403,7 +403,7 @@ are the paths that can quietly break it.
 
 ### Scanner: waste, and telling the truth about a scan
 
-- [ ] **Every stylesheet is read twice and charged twice.** `ReadBudget` has no
+- [x] **Every stylesheet is read twice and charged twice.** `ReadBudget` has no
   cache, and `tailwind::run` reads every CSS file in full before testing
   whether it wants it, so the whole corpus is read and billed, then read and
   billed again by the CSS detector that runs after it. The ten megabyte budget
