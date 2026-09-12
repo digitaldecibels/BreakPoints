@@ -195,9 +195,9 @@ are the paths that can quietly break it.
 
 - [x] **A screenshot comes back blank, and now says why.** Found on 12
   September 2026 while replacing the per-pixel crop. Every capture during the
-  run came back as one flat colour at the right dimensions, while one taken
-  the day before has real content, and the new crop was proved pixel-identical
-  to the old loop by a unit test, so the fault is in the capture itself.
+  run came back as one flat colour at the right dimensions, while one taken the
+  day before has real content, and the new crop was proved pixel-identical to
+  the old loop by a unit test, so the fault is in the capture itself.
 
   Both binaries do it, the development one and the bundled one, so it is not
   the build. The likeliest cause is macOS screen recording permission, which an
@@ -206,8 +206,65 @@ are the paths that can quietly break it.
   confirm that from here without opening System Settings.
 
   What is fixed: a capture that is one flat colour is now refused rather than
-  written, and the message names the permission, where to grant it, and the
-  two other things that look the same. What is left is a person granting it.
+  written, and the message names the permission, where to grant it, and the two
+  other things that look the same. What is left is a person granting it.
+
+- [x] **The window does not open where it was left.** Found on 12 September
+  2026 while working on the resize path, not looked for. The config records
+  `{x: 61, y: 32, width: 5059, height: 1331}`, the display is 5120 by 1440
+  logical, and the window opens at 1400 by 872, which is the builder's default.
+  Walking `fits_on_a_screen` by hand against those numbers returns true, so
+  either `available_monitors()` is failing, in which case that function returns
+  false for everything and the remembered geometry can never be used, or macOS
+  is refusing the size and nothing notices. The saved value is right and the
+  restore is what is broken. It matters more than it looks: the window is
+  deliberately opened unfocused and in its remembered place so it never lands
+  in front of what someone is doing.
+
+- [x] **A typo in the URL bar blanks the whole row.** `util::normalize_url`
+  returns `about:blank` for anything the parser rejects, with no error channel,
+  and a pasted space is enough. Every panel then navigates to nothing, the row
+  is gone, and the app reports success. The bridge's `navigate` tool has the
+  same behaviour. Return a `Result` and let both say "that is not a URL", and
+  keep `about:blank` for the genuinely empty case. Small, and there are few
+  callers. While there: `starts_with("localhost")` also matches
+  `localhosting.example`.
+
+- [x] **Opening the inspector may be able to hang the app.** `inspect_panel`
+  is sync, so it runs on the main thread, and it holds the canvas lock across
+  `open_devtools`, which takes focus. The focus handler calls
+  `canvas::restore_frames`, which locks the same non-reentrant mutex on the
+  same thread. If AppKit delivers that focus event inline, it is a freeze with
+  no output. Not reproduced, and tao may queue the event instead, but the fix
+  costs nothing: clone the webview handle out of the lock, drop the guard, then
+  call. `set_inspecting` and `set_panels_hidden` have the same shape and are
+  less exposed only because they are called off the main thread.
+
+- [x] **The watcher outlives the project it was watching.** The handle is only
+  replaced inside `if let Some(root)` (`project.rs:284`), so applying a bare
+  URL profile after having a project open leaves the old project's watcher
+  running, and an edit in a repo you are no longer looking at still reloads
+  your panels. One `else` branch. While there, the old debouncer is dropped
+  while the mutex is held, which joins its thread under the lock.
+
+- [x] **A design reference is written into the repo unchecked.**
+  `references::attach` writes the path straight into `breakpoints.md`, which is
+  a file in someone else's repository, without checking that it exists or that
+  it is inside the project root. Both checks already exist and run at compare
+  time, which can be days after the typo was committed. Move them into
+  `attach`. Small, and it matters because writing that file is meant to be a
+  deliberate act.
+
+- [x] **A capture leaves the row where it finished.** `bring_into_view` pans
+  the row to put a panel on screen and nothing pans it back, so capturing every
+  panel walks the row and leaves you wherever the last one was. The same
+  function saves the scroll sync setting, forces it off, and writes the old
+  value back unconditionally, so a toggle made during the several seconds a
+  full-page capture takes is silently reverted. Remember and restore the scroll
+  offset, and use a suspend counter rather than a save and restore for sync.
+  Small.
+
+### Robustness
 
 - [ ] **Nothing tests the window.** There are 184 unit tests and not one that
   starts the app. The failures this codebase actually hits are a missing
