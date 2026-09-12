@@ -184,6 +184,15 @@ are the paths that can quietly break it.
 
 ### Small fixes worth taking
 
+- [ ] **Read every word in the settings sheet.** Go through each tab, Viewports,
+  Project, General, Agent bridge and About, and check that every label,
+  description, hint and button says something true about what the control now
+  does. Several were written before the behaviour changed underneath them, and
+  the bridge tab was rewritten during this run while the rest was not. Then cut
+  them: the shortest wording that is still accurate, and no sentence that only
+  restates the label above it. Accuracy first, brevity second, and never
+  brevity that loses a fact somebody needs.
+
 - [ ] **A screenshot of a window that is behind something comes back blank.**
   Found on 12 September 2026 while replacing the per-pixel crop, not looked
   for. Every capture taken during the run came back as a single flat colour at
@@ -555,3 +564,19 @@ are the paths that can quietly break it.
 Two things were offered and turned down rather than missed: signing and
 notarising the app, and comparing a signed-in and a signed-out render side by
 side.
+
+### Last, once everything above is done
+
+- [ ] **A full release QA pass.** The brief is in `qa-release-brief.md`, kept
+  word for word. In short: treat the app as feature-complete and try to break
+  it for real, by running it and using it rather than by reading it. Sixteen
+  phases, from understanding the architecture through input edge cases, state
+  and persistence, every Tauri command, impatient-user behaviour, error
+  handling, visual and keyboard checks, security, and performance. Fix what it
+  finds, re-test after each fix, and keep going until a clean pass turns up
+  nothing new. It ends with a written report: tests performed, bugs found with
+  root cause and fix, files changed, anything still unresolved, and a verdict
+  of pass, pass with known issues, or fail.
+
+  This goes last on purpose. Running it before the rest of this list is done
+  would mean QA-ing code that is about to change.
