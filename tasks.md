@@ -184,7 +184,7 @@ are the paths that can quietly break it.
 
 ### Small fixes worth taking
 
-- [ ] **Read every word in the settings sheet.** Go through each tab, Viewports,
+- [x] **Read every word in the settings sheet.** Go through each tab, Viewports,
   Project, General, Agent bridge and About, and check that every label,
   description, hint and button says something true about what the control now
   does. Several were written before the behaviour changed underneath them, and

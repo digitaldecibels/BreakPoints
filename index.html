@@ -816,7 +816,7 @@
             <!-- Viewports -->
             <div x-show="$store.bp.settingsTab === 'viewports'">
               <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">Viewports</h2>
-              <p class="mt-1 text-[13px] text-text-dim">Drag to reorder. Order sets the canvas order.</p>
+              <p class="mt-1 text-[13px] text-text-dim">Drag to reorder the row.</p>
 
               <div class="mt-4 space-y-1.5">
                 <template x-for="(row, index) in rows" :key="row.id">
@@ -914,11 +914,11 @@
                 </div>
                 <label class="flex items-center gap-3">
                   <input type="checkbox" x-model="edgeTesting" @change="savePreferences" />
-                  <span class="text-[12px] text-text-dim">Edge testing: add the pixel below each breakpoint too</span>
+                  <span class="text-[12px] text-text-dim">Edge testing: also open one pixel below each breakpoint</span>
                 </label>
                 <label class="flex items-center gap-3">
                   <input type="checkbox" x-model="uniformFit" @change="savePreferences" />
-                  <span class="text-[12px] text-text-dim">Scale every panel by the same factor, so proportions stay true</span>
+                  <span class="text-[12px] text-text-dim">One scale for every panel, so their sizes stay comparable</span>
                 </label>
               </div>
 
@@ -974,19 +974,19 @@
                        whatever width it was last left at. Saying so beats
                        letting somebody measure a Safari window and trust it. -->
                   <span x-show="!browserCanSize" class="text-[11px] text-warn">
-                    opens at its own size
+                    cannot be told a width
                   </span>
                 </div>
 
                 <p class="text-[12px] leading-5 text-text-dim">
-                  The arrow on each panel's label opens that page here, at the
-                  panel's width.
+                  The arrow on each panel's label opens its page in this
+                  browser, at that panel's width.
                 </p>
 
                 <!-- Said plainly, because it is the first thing anyone asks and
                      there is no setting that would make it otherwise. -->
                 <p class="mt-3 border-t border-line pt-3 text-[12px] leading-5 text-text-faint">
-                  Inspect always opens WebKit's inspector. Chrome DevTools
+                  Inspect always opens WebKit's inspector: Chrome DevTools
                   cannot attach to a panel, which is why this exists.
                 </p>
               </div>
@@ -1015,22 +1015,21 @@
                   <div>
                     <div class="text-[12px] font-medium text-text">1. Point a session at this row</div>
                     <p class="mt-1 text-[12px] leading-5 text-text-dim">
-                      In the session you want notes to go to, run:
+                      In the session that should get them, run:
                     </p>
                     <code class="mt-1.5 block rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text">/run-breakpoints</code>
                     <p class="mt-1.5 text-[12px] leading-5 text-text-dim">
-                      It opens a socket and holds it. Its name shows beside the
-                      Report button, and the arrow lights up while it is
-                      listening. Run it elsewhere to move notes there.
+                      Its name then shows beside the Report button, and the
+                      arrow lights up while it is listening. Run it elsewhere to
+                      move notes there.
                     </p>
                   </div>
 
                   <div>
                     <div class="text-[12px] font-medium text-text">2. Report something</div>
                     <p class="mt-1 text-[12px] leading-5 text-text-dim">
-                      Turn on Report, click what is wrong in a panel, describe
-                      it. The width goes with it, and it arrives in that
-                      session as you send it.
+                      Turn on Report, click what is wrong, describe it. The
+                      width goes with it, and it arrives as you send it.
                     </p>
                   </div>
 
@@ -1052,7 +1051,7 @@
                         Listening now, so a note arrives as you send it.
                       </span>
                       <span x-show="!$store.bp.reportWatching" class="text-text-dim">
-                        Not listening, so the next note waits here and goes to
+                        Not listening: the next note waits here and goes to
                         your clipboard. Run /run-breakpoints again.
                       </span>
                     </div>
@@ -1065,13 +1064,13 @@
                   <div class="border-t border-line pt-3">
                     <div class="text-[12px] font-medium text-text-dim">Optional: the tools, as an MCP server</div>
                     <p class="mt-1 text-[12px] leading-5 text-text-dim">
-                      Only if you want a session to drive this row. Notes do
-                      not need it. Run it in the project's folder.
+                      Only for driving this row from a session. Notes do not
+                      need it. Run it in the project folder.
                     </p>
                     <code class="mt-1.5 block break-all rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text-faint" x-text="`claude mcp add --transport http breakpoints ${$store.bp.bridge.mcpUrl} --header &quot;Authorization: Bearer ${$store.bp.bridge.token}&quot;`"></code>
                     <p class="mt-1.5 text-[12px] leading-5 text-text-faint">
-                      A session that starts while this app is not running finds
-                      nothing there, and says so every time.
+                      A session that starts while this app is closed finds
+                      nothing, and says so every time.
                     </p>
                   </div>
 
@@ -1131,8 +1130,7 @@
                       </button>
                     </div>
                     <p class="mt-1 text-[11px] leading-4 text-text-faint">
-                      Goes in front of every note, whether it is pushed to a
-                      session or copied to your clipboard.
+                      Goes in front of the note, pushed or copied.
                     </p>
                   </div>
 
@@ -1154,7 +1152,7 @@
               <p class="mt-3">
                 Panels render at the exact breakpoint width, where layouts
                 actually break. Heights come from a real device in that class.
-                Every number on screen is the true one.
+                Every width on screen is checked against the page itself.
               </p>
               <div class="mt-4 flex items-center">
                 <span class="flex-1"></span>
