@@ -28,29 +28,6 @@
   is intermittent rather than reliable, and the teardown in `boot` is still the
   place to look. Do not spend long on it without a reproduction.
 
-- [ ] **Suspending off-screen panels is probably not worth building.** Measured
-  on 12 September 2026, with seven Bucknell pages loaded from the built app:
-
-  | | Nothing loaded | Seven pages loaded |
-  | --- | ---: | ---: |
-  | Main process | 59 MB | 64 MB |
-  | WebKit content processes | 41 MB | 112 MB |
-  | Total | 100 MB | 176 MB |
-
-  So a loaded page costs about 11 MB over a blank one, and suspending the four
-  or five nobody can see would save roughly 50 to 60 MB against a 176 MB
-  footprint. That is a modest saving for a change that has to restore a panel
-  at its exact declared width and keep its scroll position, both of which are
-  places this app has been bitten before. Recommendation is to leave it, and
-  the numbers above are why. Revisit if a project turns up with many more
-  breakpoints or much heavier pages.
-
-  Do not confuse this with rendering one page and scaling it to six widths.
-  That cannot work: different widths fire different media queries and run
-  different JavaScript branches, so they are genuinely different renders, and
-  scaling one to stand in for another is exactly the lie this app exists to
-  expose.
-
 - [ ] **A screenshot over MCP comes back as a file path, not an image.**
   `screenshot_panel` returns `{"path": "..."}` wrapped as a text block, where
   the shape an MCP client expects for an image is a content block with base64
