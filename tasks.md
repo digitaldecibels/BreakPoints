@@ -454,7 +454,7 @@ are the paths that can quietly break it.
   surface-a-disagreement rule asks for, and this is the case it does not cover.
   Medium.
 
-- [ ] **Configs compete with stylesheets for the file cap.** The 3000 file keep
+- [x] **Configs compete with stylesheets for the file cap.** The 3000 file keep
   limit is one pool covering both, and the walk is in directory order, so on a
   large monorepo the cap can be spent before the walk reaches the app whose
   config is the actual answer. Configs are never numerous, so they should never

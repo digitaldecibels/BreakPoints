@@ -110,6 +110,11 @@ fn worth_keeping(path: &Path) -> bool {
     ) {
         return true;
     }
+    is_stylesheet(path)
+}
+
+/// A stylesheet, or a component that carries one.
+pub fn is_stylesheet(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|e| e.to_str()),
         // `pcss` and `postcss` are the conventional extensions in a PostCSS or
@@ -164,6 +169,7 @@ impl FileIndex {
             })
             .build();
 
+        let mut stylesheets = 0usize;
         for entry in walker {
             seen += 1;
             if seen > MAX_ENTRIES {
@@ -194,12 +200,22 @@ impl FileIndex {
                     continue;
                 }
             }
-            if files.len() >= MAX_FILES {
-                log.skip("<walk>", "hit the 3000 file cap");
+            // Only stylesheets draw on the cap.
+            //
+            // There are never many configs, and they are the answer: on a
+            // monorepo with forty packages the cap could be spent in the first
+            // few directories, and the walk would stop before reaching the app
+            // whose `tailwind.config.ts` was the whole point. Counting them
+            // separately costs nothing and makes the answer deterministic.
+            if is_stylesheet(path) && stylesheets >= MAX_FILES {
+                log.skip("<walk>", "hit the 3000 stylesheet cap");
                 truncated = true;
                 break;
             }
             if let Ok(rel) = path.strip_prefix(root) {
+                if is_stylesheet(path) {
+                    stylesheets += 1;
+                }
                 files.push(rel.to_path_buf());
             }
         }
