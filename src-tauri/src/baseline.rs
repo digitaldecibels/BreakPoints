@@ -101,7 +101,13 @@ pub async fn take(app: &AppHandle, state: &Shared) -> Result<Taken, String> {
                     path: kept.to_string_lossy().to_string(),
                 });
             }
-            Err(err) => failed.push(format!("{}: {err}", panel.name)),
+            // The panel's own name is taken out of its reason, so seven
+            // identical failures can be recognised as one and said once.
+            Err(err) => failed.push(format!(
+                "{}: {}",
+                panel.name,
+                err.replace(&panel.name, "this panel")
+            )),
         }
     }
 
