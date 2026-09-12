@@ -223,18 +223,35 @@ fn build(
 
         // Edge testing shows both sides of the transition: the last pixel of
         // the old layout and the first pixel of the new one.
-        if edge_testing && discovery.width > 1.0 {
+        //
+        // A max-width discovery gets its lower side whether edge testing is on
+        // or not. `@media (max-width: 767px)` applies at 767 and stops at 768,
+        // and 768 is the width recorded, so a desktop-first project whose
+        // queries are all max-width had not one panel at a width where its own
+        // rules actually apply. The pixel below is not an extra there: it is
+        // the point.
+        let always_show_below = discovery.edge == Edge::Max;
+        if (edge_testing || always_show_below) && discovery.width > 1.0 {
             let below = discovery.width - 1.0;
             out.push(Candidate {
                 viewport: Viewport::new(
-                    format!("{name} edge"),
+                    if always_show_below {
+                        // Not an edge case here, it is where the rule applies.
+                        format!("{name} under")
+                    } else {
+                        format!("{name} edge")
+                    },
                     below,
                     height_for(below, strategy, fixed),
                     source.clone(),
                 ),
                 checked,
                 file_count: discovery.file_count,
-                detail: format!("{detail}, edge"),
+                detail: if always_show_below {
+                    format!("{detail}, where the max-width rule applies")
+                } else {
+                    format!("{detail}, edge")
+                },
                 source_file: discovery.source_file.clone(),
                 line: discovery.line,
                 confidence: discovery.confidence,

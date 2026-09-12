@@ -468,7 +468,7 @@ are the paths that can quietly break it.
   default port is offered there either. Small each, medium if a port should be
   read out of an env file.
 
-- [ ] **Desktop-first projects get panels at untested widths.** The scanner
+- [x] **Desktop-first projects get panels at untested widths.** The scanner
   works out which side of each boundary a query applies to and then never uses
   it: the only consumer is a collapse helper that nothing calls. For a project
   written desktop-first, every boundary is one pixel below where its own rules
