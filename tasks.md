@@ -566,7 +566,7 @@ are the paths that can quietly break it.
   and neither end shows up in any existing probe. Roughly 45 to 85 characters
   is the usual range. Small: it is one more probe in the same script.
 
-- [ ] **Reporting takes two steps.** You arm the mode, then click. A
+- [x] **Reporting takes two steps.** You arm the mode, then click. A
   modifier-click that describes an element without arming anything would make
   it one, and there is no keyboard shortcut for the mode either, while the
   chrome already has several. Keep the mode itself: a click that describes

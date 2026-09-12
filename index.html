@@ -182,7 +182,7 @@
           :class="$store.bp.picking ? 'border-accent text-accent' : 'border-line text-text-dim'"
           :aria-pressed="$store.bp.picking"
           @click="$store.bp.setPicking(!$store.bp.picking)"
-          title="Point at what is wrong in a panel and describe it, with the breakpoint width attached"
+          title="Point at what is wrong in a panel and describe it, with the breakpoint width attached. Command-shift-R toggles this, and a command-shift click inside a panel describes something without turning it on at all."
         >
           <span class="h-3 w-3 shrink-0" x-icon="'report'"></span>
           Report

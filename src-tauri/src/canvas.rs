@@ -645,6 +645,25 @@ fn injected_script(panel_id: &str, endpoint: &Endpoint) -> String {
     place(el);
   }}
 
+  // Describe something without arming anything first.
+  //
+  // Reporting was two steps: turn the mode on, then click. A held modifier is
+  // the same promise the mode makes, that this click describes rather than
+  // follows, without having to say so in advance. Command and shift together,
+  // because either alone already means something to a browser.
+  function onShortcutClick(e) {{
+    if (picking || !(e.metaKey && e.shiftKey)) return;
+    if (ours(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (form) {{
+      closeForm();
+      return;
+    }}
+    arm();
+    openForm(e.target);
+  }}
+
   function onClick(e) {{
     if (!picking) return;
     if (ours(e.target)) return;
@@ -773,6 +792,23 @@ fn injected_script(panel_id: &str, endpoint: &Endpoint) -> String {
     if (form) closeForm();
     else window.__bpPick(false);
   }}
+
+  // The highlight and the listeners, without changing the mode.
+  function arm() {{
+    if (box) return;
+    box = ui("div");
+    box.style.cssText =
+      "position:absolute;z-index:2147483646;pointer-events:none;background:rgba(76,141,255,.16);" +
+      "outline:1px solid #4c8dff;border-radius:2px;top:0;left:0;width:0;height:0;";
+    tag = ui("div");
+    tag.style.cssText =
+      "position:absolute;z-index:2147483647;pointer-events:none;background:#4c8dff;color:#0e1520;" +
+      "font:10px ui-monospace,monospace;padding:2px 5px;border-radius:3px;white-space:nowrap;top:0;left:0;";
+    document.body.appendChild(box);
+    document.body.appendChild(tag);
+  }}
+
+  document.addEventListener("click", onShortcutClick, true);
 
   window.__bpPick = function (on) {{
     if (on === picking) return picking;

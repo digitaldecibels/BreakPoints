@@ -357,9 +357,17 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("url")?.focus();
       document.getElementById("url")?.select();
     }
-    if (event.key === "r") {
+    if (event.key === "r" && !event.shiftKey) {
       event.preventDefault();
       api.reloadAll();
+    }
+    // Report, without reaching for the toolbar. Inside a panel the same thing
+    // is a command-shift click on whatever is wrong, which needs no mode at
+    // all; this is for when the chrome has focus.
+    if (event.shiftKey && (event.key === "r" || event.key === "R")) {
+      event.preventDefault();
+      const store = Alpine.store("bp");
+      store.setPicking(!store.picking);
     }
     // Cmd+Alt+I on the chrome itself, the way a browser does it. Without this
     // the app's own console is unreachable, which is how a permissions failure
