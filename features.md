@@ -24,10 +24,12 @@ Everything runs on your machine. The bridge listens on loopback only.
   app now checks that against what the page reports rather than assuming it.
 - **Scale to fit.** Shrink the whole row so more of it fits the window, without
   changing the width any page renders at.
+- **Zoom the row out.** A slider from actual size to ten times smaller, so ten
+  widths sit in the space one did. Every page still renders at its real width.
 - **One scale for all.** Optionally scale every panel by the same factor so
   their relative sizes stay comparable.
-- **Full height.** Make every panel as tall as the window allows, at its real
-  width.
+- **Where the panels sit.** One group of three: hanging from the top, centred in
+  the space, or stretched to the window's height. The width is never touched.
 - **Scroll sync.** Scrolling one panel takes the others to the same place, and
   skips any panel already there.
 - **Follow links.** A link clicked in one panel is followed in all of them,
@@ -123,6 +125,22 @@ Everything runs on your machine. The bridge listens on loopback only.
   the moment you send it.
 - **Never lost.** The queue survives a restart, a note is kept until the session
   proves it arrived, and a note nobody is listening for goes to your clipboard.
+- **A status bar along the bottom.** The last note, permanently, rather than a
+  line that fades after five seconds.
+- **A mark you can trust.** A ring turns while the note is on its way and closes
+  with a tick only once a listening session has been handed it.
+- **An answer back.** What the session said about your note, shown beside it,
+  with a button that brings that terminal forward to read the rest.
+- **Start a session.** One button opens your terminal at the project, runs the
+  agent, and the session claims your notes by connecting.
+- **The sitting so far.** Click the bar for the last ten notes, each with what
+  became of it and whatever was said back.
+- **A mark on the width.** The label of a width you reported from carries a dot
+  until the session answers, so the answer is tied to the width it was about.
+- **Warned before you type.** The report form says a note will go to your
+  clipboard before you write it, and offers to start a session there and then.
+- **What the session is doing.** The bar names the tool a session is running,
+  rather than only pulsing a dot.
 
 ## Screenshots and comparison
 
@@ -138,8 +156,8 @@ Everything runs on your machine. The bridge listens on loopback only.
 ## The agent bridge
 
 A local HTTP API with an MCP endpoint on top, off by default, loopback only, and
-protected by a token. Thirty tools, all of which run the same code the buttons
-do.
+protected by a token. Thirty two tools, all of which run the same code the
+buttons do.
 
 - `list_panels`: every open panel, its width, state and the width its page
   reports.
@@ -175,6 +193,13 @@ do.
 - `claim_reports`: address problem reports to this session.
 - `take_reports`: collect the notes waiting for this session.
 - `await_reports`: wait for the next note rather than checking for one.
+- `reply_to_report`: say something back about a note, shown in the app.
+- `explain_report`: everything about one note at once, including the same
+  element measured at every open width and the rules that match it.
+
+There is also a menu in the toolbar listing the skills installed on your machine
+and in the project, with each one's own description, so asking a session to run
+one needs no memory of what it is called.
 
 There is also a WebSocket, `/ws/reports`, which pushes each note to a session as
 it is written and can carry console errors too, and a stdio shim for clients
@@ -189,6 +214,8 @@ that speak that instead.
 - **Screenshot folder.** Per project, shown in full rather than as a default.
 - **Browser choice.** Which browser "open in browser" uses, listing what is
   actually installed.
+- **Terminal choice.** Which terminal the session button opens, listing what is
+  actually installed, and the command it runs there.
 - **The report instruction.** The sentence sent with every note.
 - **Shortcuts.** Command L focuses the address bar, Command R reloads the row,
   Command Shift R toggles reporting, Command Option I opens the app's own

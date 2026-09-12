@@ -43,7 +43,33 @@ feature, for the permission above.
 
 ## Open
 
-Nothing outstanding.
+Six picked from the agent integration lists, 12 September 2026.
+
+- [ ] **Drag a box instead of picking an element.** Some problems are the space
+      between things rather than a thing. A dragged rectangle becomes the note,
+      carrying the region and whatever is inside it.
+- [ ] **Let a session ask a question.** A question with buttons in the status
+      bar, answered without leaving the row. Holds the session's request open
+      until it is answered, the way await_reports does.
+- [ ] **Notes as a subscribable MCP resource.** Any MCP client subscribes and
+      gets notes natively, with no WebSocket URL, no token in a query string and
+      no long poll. Needs the MCP endpoint to support server-sent events, which
+      it may not today.
+- [ ] **The source file that drew the element travels with a note.** Resolve a
+      reported element back to the template or component that produced it,
+      through source maps and framework markers, so a session opens a file
+      instead of searching for one. Hardest part is Twig and SDC, where there is
+      no source map and the answer has to come from template comments or a debug
+      mode.
+- [ ] **The app writes the MCP config into the project.** Today registering the
+      bridge is a command you copy out of Settings. Write `.mcp.json` in the
+      project folder instead, so any session started there has the tools. Needs
+      a decision about the token, which would then be in a file in the repo:
+      probably gitignored, or read from the app's config at call time.
+- [ ] **Preview a CSS change in the row without writing a file.** A tool that
+      applies a stylesheet to every panel at once, so a proposed fix is seen at
+      all widths before anything is edited. Cleared by a reload, and a matching
+      tool to clear it on demand.
 
 Add items as they come up. Anything finished comes off this list rather than
 being marked done, and anything settled is written up in `CLAUDE.md` instead.
