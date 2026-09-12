@@ -38,7 +38,7 @@ and should be measured before they are fixed.
   nothing to measure". Small. For a measuring instrument a confidently wrong
   picture is worse than an error.
 
-- [ ] **A panel that fails on its own is marked loaded.** There is a complete
+- [x] **A panel that fails on its own is marked loaded.** There is a complete
   mechanism for drawing a failed panel at its exact size, and the only thing
   that triggers it is the pre-flight URL probe at apply time
   (`project.rs:295`). A panel that fails afterwards, a followed link that 404s,

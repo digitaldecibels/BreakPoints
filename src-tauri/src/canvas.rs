@@ -856,6 +856,18 @@ pub async fn spawn(
                 // Which protocol this panel's own document is on decides
                 // whether its messages have to be collected.
                 set_document_url(&state, &id, &url);
+
+                // A load that lands nowhere is reported as starting and never
+                // as finishing, so this cannot live in the finished branch.
+                // Measured: pointing the row at a closed port produces one
+                // report per panel, phase started, document about:blank, and
+                // the panels keep whatever state they already had.
+                let requested = state.canvas.lock().unwrap().url.clone();
+                if load_failed(&url, &requested) {
+                    confirm_load_failure(app.clone(), state.clone(), id.clone(), requested);
+                    return;
+                }
+
                 if finished {
                     set_panel_state(&app, &state, &id, PanelState::Loaded);
                     rearm_picking(&state, &id);
@@ -1488,6 +1500,54 @@ pub fn set_panels_hidden(app: &AppHandle, state: &Shared, hidden: bool) {
     }
 }
 
+/// Whether a finished load actually landed anywhere.
+///
+/// A navigation that fails at the network level, a refused connection, a name
+/// that does not resolve, a certificate WebKit will not trust, never commits.
+/// The panel is left showing `about:blank` and the delegate reports the load
+/// finished, so the label said "loaded" over a blank panel and the failed
+/// state, which exists precisely to draw the failure at the panel's exact
+/// size, was never reached.
+///
+/// Measured rather than assumed: pointing a row at a closed port puts every
+/// panel on `about:blank` with the state set to loaded.
+///
+/// `requested` is where the row or the panel was sent. A panel genuinely asked
+/// for `about:blank`, which is the empty state at first launch, has not
+/// failed.
+pub fn load_failed(document: &str, requested: &str) -> bool {
+    let blank = document.is_empty() || document == "about:blank";
+    blank && !requested.is_empty() && requested != "about:blank"
+}
+
+/// Give a blank panel a moment, then call it failed if it is still blank.
+///
+/// A real navigation can pass through a blank document on its way somewhere,
+/// so marking a panel failed the instant it reports one would hide it and then
+/// show it again, a flicker for every ordinary page load. Waiting and looking
+/// again costs nothing, because a panel that has genuinely failed stays blank.
+///
+/// The row's URL is checked again too: if it has moved on, this panel's blank
+/// document belongs to a navigation nobody is waiting for any more.
+fn confirm_load_failure(app: AppHandle, state: Shared, id: String, requested: String) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        let still_blank = {
+            let canvas = state.canvas.lock().unwrap();
+            if canvas.url != requested {
+                return;
+            }
+            match canvas.panels.iter().find(|p| p.viewport.id == id) {
+                Some(panel) => load_failed(&panel.document_url, &requested),
+                None => return,
+            }
+        };
+        if still_blank {
+            set_panel_state(&app, &state, &id, PanelState::Failed(0));
+        }
+    });
+}
+
 /// Why a panel cannot be measured right now, or `None` if it can.
 ///
 /// Panels are child webviews composited over the chrome, so the only way to
@@ -1838,6 +1898,24 @@ mod tests {
         assert_eq!(
             follow.decide("a", "https://s.test/", "https://s.test/", 4, Instant::now()),
             FollowAction::Ignore
+        );
+    }
+
+    /// A load that never committed leaves the panel blank and still reports
+    /// finished. Pointing a row at a closed port is enough to see it: every
+    /// panel ends on about:blank with its label reading "loaded".
+    #[test]
+    fn a_load_that_landed_nowhere_is_a_failure() {
+        assert!(load_failed("about:blank", "https://example.test/"));
+        assert!(load_failed("", "https://example.test/"));
+        assert!(!load_failed("https://example.test/", "https://example.test/"));
+        assert!(
+            !load_failed("about:blank", "about:blank"),
+            "the empty state at first launch asked for exactly this"
+        );
+        assert!(
+            !load_failed("about:blank", ""),
+            "nothing was requested, so nothing failed"
         );
     }
 
