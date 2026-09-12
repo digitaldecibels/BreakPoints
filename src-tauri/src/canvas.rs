@@ -1179,11 +1179,7 @@ pub fn start_pump(app: AppHandle, state: Shared) {
                 async move {
                     let drained = tokio::time::timeout(
                         std::time::Duration::from_millis(500),
-                        crate::tools::eval_js(
-                            &state,
-                            &id,
-                            "return window.__bpDrain ? window.__bpDrain() : [];",
-                        ),
+                        crate::tools::eval_wrapped(&state, &id, drain_script()),
                     )
                     .await;
                     (id, drained)
@@ -1584,6 +1580,18 @@ pub fn reload_panel(state: &Shared, id: &str) {
 ///
 /// The position is a percentage of scrollable height, not a pixel offset,
 /// because the same page is a different height at 640 wide than at 1536.
+/// The drain, wrapped once and kept.
+///
+/// It never varies, and the pump sends it to every visible panel on every
+/// tick, so building the wrapper each time was a string allocation several
+/// hundred times a second for no gain.
+fn drain_script() -> &'static str {
+    static SCRIPT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SCRIPT.get_or_init(|| {
+        crate::tools::wrap_script("return window.__bpDrain ? window.__bpDrain() : [];")
+    })
+}
+
 /// A panel whose position we cannot vouch for. Out of the 0 to 1 range, so it
 /// never matches a target and the next sync always tells it.
 const UNKNOWN_SCROLL: f64 = -1.0;

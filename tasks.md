@@ -163,7 +163,7 @@ are the paths that can quietly break it.
   panels converge, and it also gives an agent a per-panel scroll position that
   currently needs an `eval_js` per panel to discover. Small.
 
-- [ ] **The hot loop allocates for nothing.** Every drain calls `eval_js`,
+- [x] **The hot loop allocates for nothing.** Every drain calls `eval_js`,
   which starts with `require_panel` and `resolve_id`, and that clones every
   viewport in the row to match an id it was already handed. It then builds a
   900 byte wrapper with `format!` and parses the result JSON twice. At the

@@ -54,13 +54,24 @@ fn require_panel(state: &Shared, needle: &str) -> Result<String, String> {
     })
 }
 
+/// Wrap a script so an exception comes back as a message rather than
+/// vanishing, and so a promise says so instead of serialising to `{}`.
+///
+/// A promise cannot be waited for here: the webview hands back whatever the
+/// expression evaluated to. Saying so beats returning an empty object and
+/// letting the caller conclude the page had nothing to say.
+pub fn wrap_script(script: &str) -> String {
+    format!(
+        "(function () {{ try {{ var value = (function () {{ {script} }})(); if (value && typeof value.then === \"function\") {{ return JSON.stringify({{ ok: false, error: \"eval_js cannot wait for a promise. Assign the result to a window property inside .then(), then read that property with a second eval_js.\" }}); }} return JSON.stringify({{ ok: true, value: value }}); }} catch (e) {{ return JSON.stringify({{ ok: false, error: String((e && e.message) || e) }}); }} }})()"
+    )
+}
+
 /// Run JavaScript in one panel and get the value back.
 ///
-/// The script is wrapped so an exception comes back as a message rather than
-/// vanishing, and the whole thing gives up after ten seconds rather than
-/// holding a request open forever.
-pub async fn eval_js(state: &Shared, panel: &str, script: &str) -> Result<Value, String> {
-    let id = require_panel(state, panel)?;
+/// Takes the panel's id, already resolved. The pump calls this several hundred
+/// times a second at its fastest rate, and resolving a name it was already
+/// given meant cloning every viewport in the row to match one id.
+pub async fn eval_wrapped(state: &Shared, id: &str, wrapped: &str) -> Result<Value, String> {
     let (tx, rx) = tokio::sync::oneshot::channel::<String>();
 
     {
@@ -71,19 +82,11 @@ pub async fn eval_js(state: &Shared, panel: &str, script: &str) -> Result<Value,
             .find(|p| p.viewport.id == id)
             .ok_or("panel disappeared")?;
 
-        // A promise cannot be waited for here: the webview hands back whatever
-        // the expression evaluated to, and a pending promise serialises to an
-        // empty object. Saying so beats returning `{}` and letting the caller
-        // conclude the page had nothing to say.
-        let wrapped = format!(
-            "(function () {{ try {{ var value = (function () {{ {script} }})(); if (value && typeof value.then === \"function\") {{ return JSON.stringify({{ ok: false, error: \"eval_js cannot wait for a promise. Assign the result to a window property inside .then(), then read that property with a second eval_js.\" }}); }} return JSON.stringify({{ ok: true, value: value }}); }} catch (e) {{ return JSON.stringify({{ ok: false, error: String((e && e.message) || e) }}); }} }})()"
-        );
-
         // The callback is Fn, so the sender has to be takeable from inside it.
         let slot = Mutex::new(Some(tx));
         target
             .webview
-            .eval_with_callback(wrapped, move |result| {
+            .eval_with_callback(wrapped.to_string(), move |result| {
                 if let Some(tx) = slot.lock().unwrap().take() {
                     let _ = tx.send(result);
                 }
@@ -97,6 +100,12 @@ pub async fn eval_js(state: &Shared, panel: &str, script: &str) -> Result<Value,
         .map_err(|_| "panel closed before it answered".to_string())?;
 
     unwrap_envelope(&raw)
+}
+
+/// The same, for a caller that has a panel's name or index rather than its id.
+pub async fn eval_js(state: &Shared, panel: &str, script: &str) -> Result<Value, String> {
+    let id = require_panel(state, panel)?;
+    eval_wrapped(state, &id, &wrap_script(script)).await
 }
 
 /// Run JavaScript in Break/Points' own chrome and hand back the value.
