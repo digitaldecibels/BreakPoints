@@ -18,7 +18,7 @@ and should be measured before they are fixed.
   appearing to do nothing. Set it in both branches, and let `set_panel_state`
   own the lookup. Small, and the worst failure on this list.
 
-- [ ] **Polling is keyed to the row's URL, not the panel's.** `start_pump`
+- [x] **Polling is keyed to the row's URL, not the panel's.** `start_pump`
   gates on `canvas.url.starts_with("https:")` (`canvas.rs:989`), and
   `canvas.url` only moves on spawn, navigate and a broadcast follow. A row
   opened on http that redirects to https keeps the old value, so every panel

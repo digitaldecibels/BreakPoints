@@ -59,6 +59,17 @@ pub struct Panel {
     pub height: f64,
     pub state: PanelState,
     pub last_scroll_pct: f64,
+    /// The URL of the document this panel is actually showing, as reported by
+    /// the navigation delegate.
+    ///
+    /// Not the same as the row's URL, and the difference is load bearing. A row
+    /// opened on http that redirects to https leaves the row's URL on http,
+    /// and whether a panel's messages have to be collected by the pump depends
+    /// on the protocol of the document the panel really has. Deciding that from
+    /// the row meant every panel queued messages that nobody ever drained,
+    /// until the queue overflowed and started discarding, with scroll sync,
+    /// console capture and problem reports all dead and nothing saying so.
+    pub document_url: String,
     /// The width the page itself last said it was, or `None` before it has
     /// said anything.
     ///
@@ -144,6 +155,11 @@ pub struct PanelInfo {
     pub on_screen_width: f64,
     pub on_screen_height: f64,
     pub state: PanelState,
+    /// The document this panel is actually showing. Empty until it has
+    /// reported one. It can differ from the row's URL, and when it does that
+    /// is worth seeing: a site that redirects on width puts two panels on two
+    /// different pages.
+    pub document_url: String,
     /// What the page says its viewport is, once it has said anything.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reported_width: Option<f64>,
@@ -837,6 +853,9 @@ pub async fn spawn(
                 // because a load can be reported finished without this task
                 // ever having seen it start.
                 mark_committed(&state, &id);
+                // Which protocol this panel's own document is on decides
+                // whether its messages have to be collected.
+                set_document_url(&state, &id, &url);
                 if finished {
                     set_panel_state(&app, &state, &id, PanelState::Loaded);
                     rearm_picking(&state, &id);
@@ -870,6 +889,7 @@ pub async fn spawn(
             height: place.height,
             state: PanelState::Loading,
             last_scroll_pct: 0.0,
+            document_url: String::new(),
             reported_width: None,
             ever_committed: committed,
         });
@@ -1013,22 +1033,20 @@ pub fn start_pump(app: AppHandle, state: Shared) {
 
             let ids: Vec<String> = {
                 let canvas = state.canvas.lock().unwrap();
-                // An http page posts directly and its queue is always empty,
-                // so asking it would be pure cost.
-                if !canvas.url.starts_with("https:") {
-                    Vec::new()
-                } else {
-                    canvas
-                        .panels
-                        .iter()
-                        // Asking a panel that has never committed a navigation
-                        // is worse than not asking: wry queues the script with
-                        // no callback, so the drain runs later, empties the
-                        // queue and hands the contents to nobody.
-                        .filter(|p| p.ever_committed)
-                        .map(|p| p.viewport.id.clone())
-                        .collect()
-                }
+                canvas
+                    .panels
+                    .iter()
+                    // Asking a panel that has never committed a navigation is
+                    // worse than not asking: wry queues the script with no
+                    // callback, so the drain runs later, empties the queue and
+                    // hands the contents to nobody.
+                    .filter(|p| p.ever_committed)
+                    // Each panel's own document decides this, never the row's.
+                    // A row opened on http that redirects to https left every
+                    // panel queueing into a void.
+                    .filter(|p| needs_pump(&p.document_url))
+                    .map(|p| p.viewport.id.clone())
+                    .collect()
             };
             if ids.is_empty() {
                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -1470,6 +1488,26 @@ pub fn set_panels_hidden(app: &AppHandle, state: &Shared, hidden: bool) {
     }
 }
 
+/// Whether a panel's own document has to have its messages collected.
+///
+/// An http page posts to the loopback callback server directly, so its queue
+/// is always empty and asking it is pure cost. WebKit blocks that request from
+/// an https document and does not exempt loopback, so an https page queues
+/// instead and something has to come and take the queue.
+pub fn needs_pump(document_url: &str) -> bool {
+    document_url.starts_with("https:")
+}
+
+/// Remember which document a panel is showing.
+pub fn set_document_url(state: &Shared, id: &str, url: &str) {
+    let mut canvas = state.canvas.lock().unwrap();
+    if let Some(panel) = canvas.panels.iter_mut().find(|p| p.viewport.id == id) {
+        if panel.document_url != url {
+            panel.document_url = url.to_string();
+        }
+    }
+}
+
 /// Record that a panel has committed a navigation, so the pump may ask it
 /// questions.
 ///
@@ -1622,6 +1660,7 @@ pub fn info(state: &Shared) -> CanvasInfo {
                 on_screen_width: p.width,
                 on_screen_height: p.height,
                 state: p.state.clone(),
+                document_url: p.document_url.clone(),
                 reported_width: p.reported_width,
                 width_mismatch: width_disagrees(p.viewport.width, p.reported_width),
             })
@@ -1766,6 +1805,18 @@ mod tests {
             follow.decide("a", "https://s.test/", "https://s.test/", 4, Instant::now()),
             FollowAction::Ignore
         );
+    }
+
+    /// Whether a panel's messages have to be collected is a fact about that
+    /// panel's own document. Reading it off the row meant a row opened on http
+    /// that redirected to https had every panel queueing into a void, with
+    /// scroll sync, console capture and problem reports all dead at once.
+    #[test]
+    fn collecting_is_decided_per_panel_not_per_row() {
+        assert!(needs_pump("https://bucknell-be-the-ray.lndo.site/"));
+        assert!(!needs_pump("http://localhost:1420/"));
+        assert!(!needs_pump(""), "a panel that has not loaded has nothing to collect");
+        assert!(!needs_pump("about:blank"));
     }
 
     /// A load reported before its panel was added to the row used to be
