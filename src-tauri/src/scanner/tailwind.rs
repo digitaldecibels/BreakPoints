@@ -5,6 +5,7 @@
 //! which is far easier to read and cannot compute anything.
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use regex::Regex;
 
@@ -53,8 +54,27 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     if let Some(rel) = configs.first() {
         if let Some(text) = budget.read(index, rel, log) {
             let file = rel.to_string_lossy().to_string();
-            if let Some(detection) = parse_v3(&text, &file, declared.as_deref(), log, &mut out.warnings)
+
+            // A config that takes its screens from a shared preset resolves to
+            // nothing on its own, and that is the standard design-system
+            // setup. A preset inside the project can be read with the same
+            // code; one that is a published package cannot, because
+            // node_modules is deliberately never indexed, and saying so beats
+            // quietly falling back to the framework's defaults.
+            let from_preset = preset_paths(&text)
+                .into_iter()
+                .find_map(|preset| resolve_preset(index, rel, &preset, budget, log));
+
+            let source = from_preset.unwrap_or((text, file.clone()));
+            if let Some(mut detection) =
+                parse_v3(&source.0, &source.1, declared.as_deref(), log, &mut out.warnings)
             {
+                if source.1 != file {
+                    log.note(format!("{file} takes its screens from the preset {}", source.1));
+                    detection
+                        .metadata
+                        .insert("preset".into(), source.1.clone());
+                }
                 found_any = true;
                 out.breakpoints.extend(detection.breakpoints.clone());
                 out.frameworks.push(detection);
@@ -476,6 +496,78 @@ fn read_screens(
             "value is neither a length nor an object; probably an identifier or a computed expression",
         );
     }
+}
+
+/// Every preset a config names, as written.
+fn preset_paths(text: &str) -> Vec<String> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r#"(?s)presets\s*:\s*\[(.*?)\]"#).unwrap()
+    });
+    static INNER: OnceLock<Regex> = OnceLock::new();
+    let inner = INNER.get_or_init(|| Regex::new(r#"['"]([^'"]+)['"]"#).unwrap());
+
+    re.captures_iter(text)
+        .flat_map(|caps| {
+            inner
+                .captures_iter(&caps[1].to_string())
+                .map(|c| c[1].to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Find a preset that lives inside the project, and read it.
+///
+/// A path starting with a dot is relative to the config; anything else is a
+/// package name, which is only reachable if it happens to be a workspace in
+/// this repository.
+fn resolve_preset(
+    index: &FileIndex,
+    config: &std::path::Path,
+    preset: &str,
+    budget: &mut ReadBudget,
+    log: &mut ScanLog,
+) -> Option<(String, String)> {
+    let candidates: Vec<std::path::PathBuf> = if preset.starts_with('.') {
+        let base = config.parent().unwrap_or(std::path::Path::new(""));
+        let joined = base.join(preset.trim_start_matches("./"));
+        // With and without an extension, because a require rarely writes one.
+        ["", ".js", ".cjs", ".mjs", ".ts"]
+            .iter()
+            .map(|ext| std::path::PathBuf::from(format!("{}{ext}", joined.to_string_lossy())))
+            .collect()
+    } else {
+        // A published package. node_modules is never indexed, so this can only
+        // be found if it is a workspace in this repository.
+        vec![]
+    };
+
+    for candidate in candidates {
+        // A preset is not a file the walk keeps, because it can be called
+        // anything, so it is read by path rather than looked up in the index.
+        // The path has to stay inside the project: it comes out of a config
+        // file, and a config file is not a thing to trust with an absolute
+        // path.
+        let absolute = index.absolute(&candidate);
+        let inside = absolute
+            .canonicalize()
+            .ok()
+            .zip(index.root.canonicalize().ok())
+            .map(|(path, root)| path.starts_with(&root))
+            .unwrap_or(false);
+        if !inside || !absolute.is_file() {
+            continue;
+        }
+        let text = budget.read(index, &candidate, log)?;
+        return Some((text, candidate.to_string_lossy().to_string()));
+    }
+
+    log.skip(
+        preset,
+        "a Tailwind preset that is not a file in this project, so its screens cannot be read",
+    );
+    None
 }
 
 /// Whether a stylesheet pulls the framework in.

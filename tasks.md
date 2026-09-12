@@ -506,7 +506,7 @@ are the paths that can quietly break it.
   raise a CSS discovery to confirmed or flag a configured width the browser
   never sees. Large, and it is the direction everything else here points at.
 
-- [ ] **Follow Tailwind presets.** A config that takes its screens from a
+- [x] **Follow Tailwind presets.** A config that takes its screens from a
   shared preset package, which is the standard design-system setup, resolves to
   nothing, and the shipped defaults are emitted with only a log note. A preset
   that resolves to a path inside the project, a sibling workspace package, can
