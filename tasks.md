@@ -461,7 +461,7 @@ are the paths that can quietly break it.
   draw on that budget: two keep lists, one uncapped for configs and one capped
   for stylesheets. Small.
 
-- [ ] **Rails is never detected, and a monorepo gets no default port.** Nothing
+- [x] **Rails is never detected, and a monorepo gets no default port.** Nothing
   looks for a Rails startup file, a `Procfile.dev` or a `Gemfile`, and those
   files are not indexed either, so a Rails app never gets its localhost URL. In
   a monorepo the root package file carries no framework dependency, so no

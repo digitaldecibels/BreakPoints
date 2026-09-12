@@ -151,10 +151,23 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     }
 
     // package.json: an explicit --port in a dev script, then the framework's own default.
-    for rel in index.by_name("package.json") {
-        if rel.components().count() > 1 {
-            continue;
-        }
+    //
+    // Nested ones count too, and used to be skipped outright. In a workspace
+    // the root package declares no framework at all, so a monorepo was offered
+    // no dev URL even though one of its packages plainly runs Next on 3000.
+    // The shallowest few are read, closest to the root first, because that is
+    // the likeliest to be the app somebody means, and a deep one is worth less
+    // than a shallow one.
+    let mut packages: Vec<&std::path::PathBuf> = index.by_name("package.json");
+    packages.sort_by_key(|rel| (rel.components().count(), rel.to_string_lossy().to_string()));
+
+    for rel in packages.into_iter().take(MAX_PACKAGE_FILES) {
+        let depth = rel.components().count();
+        // Confidence falls away from the root: the root describes the project,
+        // a workspace describes one app in it.
+        let depth_penalty = if depth > 1 { 0.1 } else { 0.0 };
+        // Rounded, or subtracting a tenth leaves 0.30000000000000004 on screen.
+        let scaled = |base: f64| ((base - depth_penalty) * 100.0).round() / 100.0;
         let Some(text) = budget.read(index, rel, log) else { continue };
         let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
 
@@ -167,8 +180,8 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                             DevServerDiscovery {
                                 url: format!("http://localhost:{port}"),
                                 port: Some(port),
-                                source: format!("package.json scripts.{script}"),
-                                confidence: 0.7,
+                                source: format!("{} scripts.{script}", rel.to_string_lossy()),
+                                confidence: scaled(0.7),
                                 responding: None,
                             },
                             log,
@@ -187,14 +200,37 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                     DevServerDiscovery {
                         url: format!("http://localhost:{port}"),
                         port: Some(*port),
-                        source: format!("{package} default port"),
-                        confidence: 0.4,
+                        source: format!("{package} default port, from {}", rel.to_string_lossy()),
+                        confidence: scaled(0.4),
                         responding: None,
                     },
                     log,
                 );
             }
         }
+    }
+
+    // Rails.
+    //
+    // Nothing looked for it, and nothing indexed its files either, so a Rails
+    // app was offered no dev URL whatsoever. Any of these three means Rails,
+    // and Rails serves on 3000 unless told otherwise.
+    for name in ["Procfile.dev", "config.ru", "Gemfile"] {
+        let Some(rel) = index.by_name(name).into_iter().next() else { continue };
+        let file = rel.to_string_lossy().to_string();
+        // A Gemfile alone is any Ruby project; the other two are a web app.
+        let confidence = if name == "Gemfile" { 0.35 } else { 0.5 };
+        push(
+            DevServerDiscovery {
+                url: "http://localhost:3000".into(),
+                port: Some(3000),
+                source: format!("{file} default Rails port"),
+                confidence,
+                responding: None,
+            },
+            log,
+        );
+        break;
     }
 
     demote_bundlers(&mut out.dev_servers, log);
@@ -232,6 +268,10 @@ fn demote_bundlers(candidates: &mut [DevServerDiscovery], log: &mut ScanLog) {
         }
     }
 }
+
+/// How many `package.json` files are worth opening. A monorepo has one per
+/// package and they all say much the same thing.
+const MAX_PACKAGE_FILES: usize = 8;
 
 const FRAMEWORK_DEFAULTS: &[(&str, u16)] = &[
     ("vite", 5173),

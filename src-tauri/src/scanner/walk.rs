@@ -107,6 +107,11 @@ fn worth_keeping(path: &Path) -> bool {
             | "docker-compose.yml"
             | "docker-compose.yaml"
             | "compose.yml"
+            // Rails: any one of these means a Rails app, and without them a
+            // Rails project never got a dev URL at all.
+            | "Gemfile"
+            | "Procfile.dev"
+            | "config.ru"
     ) {
         return true;
     }
