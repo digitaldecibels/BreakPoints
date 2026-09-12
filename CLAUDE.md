@@ -263,6 +263,15 @@ back, so the labels sit permanently offset from the panels they name. Use
 chrome clips rather than scrolls. That is the label strip, the app wrapper and
 `html, body`.
 
+**A Vite reload of the chrome has twice ended the process, exit code 0.** Both
+times immediately after a `[vite] (client) page reload` line, taking the window
+with it. It has not been reproducible since: twelve reloads on 12 September
+2026, including five issued while the panels were still loading, which is the
+race the teardown in `boot` would lose, left the app up every time with all
+seven panels intact. So it is either gone or very rare. If it happens again the
+thing worth writing down is what the row was doing at the time, because none of
+the states tried here were enough to cause it.
+
 **`productName` cannot contain a slash.** macOS treats it specially in
 filenames. The bundle is `BreakPoints`; "Break/Points" is the window title and
 everything users read. Keep the slash out of crate names, bundle ids and
