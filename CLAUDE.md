@@ -466,6 +466,17 @@ the diagnostics log, viewport generation, `breakpoints.md`, file watching,
 profiles, the first launch and failure states, the agent bridge with MCP and a
 stdio shim, `audit_all`, references and `diff_panel`.
 
+**A screenshot is answered with a path, not with the picture.** The MCP
+specification has a shape for returning an image, which is the file written out
+as text inside the reply, and `screenshot_panel` deliberately does not use it.
+It saves the PNG and answers with where it went.
+
+The reason is that the bridge only listens on loopback, so whatever is calling
+it is on this machine and can open the file. Writing a full-page capture into
+the reply instead would put several megabytes of text through a single tool
+call, every time, to save a client from a read it can already do. Revisit only
+if something turns up that can reach the bridge but not the disk.
+
 `full_page: true` on `screenshot_panel` walks the page a screenful at a time
 and stitches the tiles, rather than drawing into a canvas element. Every tile
 is a real compositor capture of a real render, which is what keeps the shot
