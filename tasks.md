@@ -232,7 +232,7 @@ are the paths that can quietly break it.
   call. `set_inspecting` and `set_panels_hidden` have the same shape and are
   less exposed only because they are called off the main thread.
 
-- [ ] **The watcher outlives the project it was watching.** The handle is only
+- [x] **The watcher outlives the project it was watching.** The handle is only
   replaced inside `if let Some(root)` (`project.rs:284`), so applying a bare
   URL profile after having a project open leaves the old project's watcher
   running, and an edit in a repo you are no longer looking at still reloads

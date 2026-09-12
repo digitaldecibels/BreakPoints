@@ -281,6 +281,17 @@ pub async fn apply(
         save_locked(app, &config);
     }
 
+    // The old watch is stopped whether or not a new one replaces it. Applying
+    // a bare URL profile after a project used to leave the project's watcher
+    // running for the life of the app, so an edit in a repository nobody was
+    // looking at any more still reloaded the panels.
+    //
+    // Taken out of the mutex before it is dropped: dropping a debouncer joins
+    // its thread, and doing that while holding the lock blocks anything else
+    // that wants it.
+    let previous = state.watcher.lock().unwrap().take();
+    drop(previous);
+
     if let Some(root) = root {
         match watcher::start(app.clone(), &root) {
             Ok(handle) => *state.watcher.lock().unwrap() = Some(handle),
