@@ -561,7 +561,10 @@ Not built, and deliberately so:
 ## Working agreements
 
 - **`tasks.md` at the repo root is the task list.** It is treated as text
-  published under Rick's name, so no em dashes in it.
+  published under Rick's name, so no em dashes in it. Finished work comes off
+  the list rather than being ticked; the history is one commit per task.
+- **`features.md` is what the app does**, one line per feature, kept current
+  when a feature is added or removed.
 - **No em dashes** in the README, in `breakpoints-plan.md`, or in anything else
   that goes out under Rick's name. Chat replies and code comments are fine.
 - **Commit permission has never been stated on this project.** Ask before
