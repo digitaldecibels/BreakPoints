@@ -53,7 +53,9 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     let mut declared_in: Vec<(String, String)> = Vec::new();
     let mut imported_by: Option<String> = None;
 
-    for rel in index.by_extension(&["css"]) {
+    // Any stylesheet can carry the `@theme` block, not only a `.css` one: a
+    // PostCSS project writes `.pcss`.
+    for rel in index.by_extension(super::css::STYLESHEETS) {
         // The deadline is checked here as well as in the walk. This detector
         // runs first and reads the whole stylesheet corpus, so it is the one
         // most likely to blow the budget and it was the one that could not see

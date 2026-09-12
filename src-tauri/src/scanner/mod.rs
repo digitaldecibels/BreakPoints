@@ -159,7 +159,7 @@ pub fn scan(root: &Path, mut on_row: impl FnMut(ScanRow)) -> ScanOutcome {
     log.detector_start("css");
     let css_output = css::run(&index, &mut budget, &mut log);
     log.detector_end("css", css_output.breakpoints.len(), at.elapsed().as_millis() as u64);
-    let css_files: usize = index.by_extension(&["css", "scss", "sass"]).len();
+    let css_files: usize = index.by_extension(css::STYLESHEETS).len();
     if !css_output.breakpoints.is_empty() {
         let queries: usize = css_output.breakpoints.len();
         emit(

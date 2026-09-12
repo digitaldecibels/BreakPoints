@@ -344,7 +344,7 @@ are the paths that can quietly break it.
   `.svelte` and `.astro` is medium work and is the biggest miss by number of
   projects.
 
-- [ ] **Common stylesheet extensions are left out.** `.pcss` and `.postcss` are
+- [x] **Common stylesheet extensions are left out.** `.pcss` and `.postcss` are
   the convention in PostCSS and Tailwind setups, including a v4 theme file, and
   `.less` covers a lot of older Drupal and WordPress themes. Small, and it is
   the same change as above without the extraction.

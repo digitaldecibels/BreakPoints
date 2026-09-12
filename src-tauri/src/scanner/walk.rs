@@ -95,7 +95,11 @@ fn worth_keeping(path: &Path) -> bool {
     }
     matches!(
         path.extension().and_then(|e| e.to_str()),
-        Some("css") | Some("scss") | Some("sass")
+        // `pcss` and `postcss` are the conventional extensions in a PostCSS or
+        // Tailwind setup, including for a v4 theme file, and `less` covers a
+        // lot of older Drupal and WordPress themes. Leaving them out meant
+        // those projects had no stylesheets to read at all.
+        Some("css") | Some("scss") | Some("sass") | Some("pcss") | Some("postcss") | Some("less")
     )
 }
 

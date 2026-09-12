@@ -11,6 +11,12 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
+/// Every extension this detector treats as a stylesheet.
+///
+/// `pcss` and `postcss` are the convention in PostCSS and Tailwind setups, and
+/// `less` is what a lot of older Drupal and WordPress themes are written in.
+pub const STYLESHEETS: &[&str] = &["css", "scss", "sass", "pcss", "postcss", "less"];
+
 use super::log::ScanLog;
 use super::types::{BreakpointDiscovery, DetectorOutput, Edge, Kind, ScanWarning};
 use super::units::{overrides_root_font_size, parse_length, widths_in_query};
@@ -68,7 +74,7 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     let mut project_vars: BTreeMap<String, String> = BTreeMap::new();
     let mut project_maps: BTreeMap<String, f64> = BTreeMap::new();
 
-    for rel in index.by_extension(&["css", "scss", "sass"]) {
+    for rel in index.by_extension(&STYLESHEETS) {
         let file = rel.to_string_lossy().to_string();
         if IGNORE_MARKERS.iter().any(|m| file.contains(m)) {
             log.skip(&file, "compiled, vendored or minified output");
