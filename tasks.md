@@ -28,7 +28,7 @@ and should be measured before they are fixed.
   recorded as having cost three features at once. Give `Panel` its own flag set
   from the real per-document URL in `on_page_load`. Small.
 
-- [ ] **A screenshot taken while the panels are hidden captures the chrome.**
+- [x] **A screenshot taken while the panels are hidden captures the chrome.**
   Nothing in `shots.rs` checks `panels_hidden` or `inspecting`, and panels are
   hidden whenever a sheet is open or one panel is being inspected. The capture
   returns a valid PNG of the sheet and reports success. The accessibility audit

@@ -239,6 +239,11 @@ fn rank(findings: &mut [Value]) {
 
 /// Screenshot, console and probes for every panel, in one report.
 pub async fn run(app: &AppHandle, state: &Shared) -> Result<Value, String> {
+    // Every probe here measures layout, and a hidden webview is not a laid out
+    // one, so an audit taken behind a sheet measures nothing.
+    if let Some(reason) = crate::canvas::cannot_measure(state, None) {
+        return Err(reason);
+    }
     let panels = tools::list_panels(state);
     if panels.is_empty() {
         return Err("no panels are open".into());

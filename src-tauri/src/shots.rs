@@ -27,6 +27,12 @@ pub async fn capture(
 ) -> Result<String, String> {
     let id = canvas::resolve_id(state, panel).ok_or_else(|| format!("no panel matches \"{panel}\""))?;
 
+    // A hidden panel's rectangle is filled with chrome, and capturing it
+    // returns a confident picture of the wrong thing.
+    if let Some(reason) = canvas::cannot_measure(state, Some(&id)) {
+        return Err(reason);
+    }
+
     if full_page {
         return capture_full_page(app, state, &id).await;
     }
@@ -349,6 +355,9 @@ fn window_logical_size(app: &AppHandle) -> Result<(f64, f64), String> {
 
 /// Every panel, left to right. One PNG each.
 pub async fn capture_all(app: &AppHandle, state: &Shared) -> Result<Vec<PathBuf>, String> {
+    if let Some(reason) = canvas::cannot_measure(state, None) {
+        return Err(reason);
+    }
     let ids: Vec<String> = state
         .canvas
         .lock()

@@ -200,6 +200,12 @@ return {
 /// measuring instrument: a result that took twice as long to collect is still
 /// the same result, but a machine under load reports different timings.
 pub async fn audit_all(state: &Shared) -> Result<AccessReport, String> {
+    // The sheet is opened after this runs, never before, but an agent can call
+    // it at any time and a sheet may already be open.
+    if let Some(reason) = crate::canvas::cannot_measure(state, None) {
+        return Err(reason);
+    }
+
     let panels = tools::list_panels(state);
     if panels.is_empty() {
         return Err("no panels are open, so there is nothing to audit. Open a project or navigate to a URL first.".into());

@@ -1488,6 +1488,40 @@ pub fn set_panels_hidden(app: &AppHandle, state: &Shared, hidden: bool) {
     }
 }
 
+/// Why a panel cannot be measured right now, or `None` if it can.
+///
+/// Panels are child webviews composited over the chrome, so the only way to
+/// draw a sheet is to hide them, and a window capture at a hidden panel's
+/// rectangle returns whatever chrome is painted there instead. That came back
+/// as a valid PNG of the sheet, reported as a success, which for a measuring
+/// instrument is worse than an error. Inspecting has the same effect on every
+/// panel except the one being inspected.
+///
+/// Pass the panel being measured, or `None` when the whole row is.
+pub fn cannot_measure(state: &Shared, id: Option<&str>) -> Option<String> {
+    let canvas = state.canvas.lock().unwrap();
+    if canvas.panels_hidden {
+        return Some(
+            "the panels are hidden behind a sheet, so there is nothing to measure. Close it first."
+                .to_string(),
+        );
+    }
+    let inspecting = canvas.inspecting.as_deref()?;
+    // Every other panel is hidden behind the docked inspector.
+    if id == Some(inspecting) {
+        return None;
+    }
+    let name = canvas
+        .panels
+        .iter()
+        .find(|p| p.viewport.id == inspecting)
+        .map(|p| p.viewport.name.clone())
+        .unwrap_or_else(|| inspecting.to_string());
+    Some(format!(
+        "the row is hidden while {name} is being inspected, so there is nothing to measure. Leave inspect mode first."
+    ))
+}
+
 /// Whether a panel's own document has to have its messages collected.
 ///
 /// An http page posts to the loopback callback server directly, so its queue
