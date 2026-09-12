@@ -513,6 +513,12 @@
         >
           <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text" x-text="heading"></h2>
 
+          <!-- What the scan could not look at.
+               A partial answer used to be presented exactly like a complete
+               one, so "No breakpoints found" was a dead end rather than
+               something you could act on. -->
+          <p x-show="limits" class="mt-1 text-[12px] leading-5 text-warn" x-text="limits"></p>
+
           <!-- Detector rows, appearing as each one finishes. -->
           <div class="mt-5 space-y-2">
             <template x-for="(row, index) in $store.bp.scan.rows" :key="index">

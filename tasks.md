@@ -418,7 +418,7 @@ are the paths that can quietly break it.
   gitignore rules cover it only inside a git repository, which a delivered zip
   or a fresh checkout is not.
 
-- [ ] **A truncated scan looks exactly like a complete one.** `report.truncated`
+- [x] **A truncated scan looks exactly like a complete one.** `report.truncated`
   is set correctly, serialised, and read by nothing in the window, so a scan
   that hit the file cap presents its partial answer with full confidence. The
   scan row's "files read" is also the count of files the index kept, not the

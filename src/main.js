@@ -79,6 +79,23 @@ Alpine.data("scanSheet", () => ({
     return store.projectName ? `Scanning ${store.projectName}` : "Scanning";
   },
 
+  /** What the scan could not look at, so an empty result is a report rather
+   *  than a dead end. */
+  get limits() {
+    const report = Alpine.store("bp").scan.report;
+    if (!report) return "";
+    const notes = [];
+    if (report.truncated) {
+      notes.push(
+        `The walk stopped at its file limit, so this is a partial answer. ${report.scannedFiles} files were indexed.`
+      );
+    }
+    if (report.skippedFiles) {
+      notes.push(`${report.skippedFiles} files were skipped as build output, dependencies or tooling.`);
+    }
+    return notes.join(" ");
+  },
+
   get recommendedLabel() {
     const store = Alpine.store("bp");
     return store.scan.fallback
@@ -207,7 +224,17 @@ Alpine.data("settingsSheet", () => ({
     const name = framework
       ? `${framework.framework}${framework.version ? ` v${framework.version}` : ""}`
       : "no framework";
-    return `${name}, ${report.breakpoints.length} breakpoints, ${report.scannedFiles} files read in ${report.durationMs}ms`;
+    // `scannedFiles` is how many files the index kept, not how many were
+    // opened, and after the walk stops early the two diverge a lot. Saying
+    // "indexed" keeps it true, and a truncated walk says so rather than
+    // presenting a partial answer with the confidence of a complete one.
+    const parts = [
+      name,
+      `${report.breakpoints.length} breakpoints`,
+      `${report.scannedFiles} files indexed in ${report.durationMs}ms`,
+    ];
+    if (report.truncated) parts.push("stopped early, so this is partial");
+    return parts.join(", ");
   },
 
   addRow() {
