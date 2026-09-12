@@ -229,6 +229,14 @@ export function registerStore(Alpine) {
           requestAnimationFrame(() => (this.echoingScroll = false));
         }
       });
+      // The authoritative count comes from Rust with every layout, and this
+      // keeps the badge current in between. Without it an error logged while
+      // nothing else was happening did not appear until the next relayout.
+      listen("panel:console", (event) => {
+        if (event.payload?.level !== "error") return;
+        const panel = this.panels.find((p) => p.id === event.payload.panel);
+        if (panel) panel.consoleErrors = (panel.consoleErrors ?? 0) + 1;
+      });
       listen("url:status", (event) => (this.urlStatus = event.payload));
       listen("canvas:notice", (event) => this.say(event.payload));
       // How many notes are waiting, from the one place that knows. The chrome
@@ -484,6 +492,23 @@ export function registerStore(Alpine) {
       this.picking = on;
       await api.setPicking(on);
       if (on) this.say("Point at what is wrong in any panel, then describe it.");
+    },
+
+    /** The most recent errors a panel's page logged, in the notice band. */
+    async showConsole(panelId) {
+      try {
+        const lines = await api.panelConsole(panelId);
+        const errors = (lines ?? []).filter((line) => line.level === "error");
+        if (!errors.length) {
+          this.say("No errors in this panel now.");
+          return;
+        }
+        const latest = errors[errors.length - 1];
+        const count = `${errors.length} error${errors.length === 1 ? "" : "s"}`;
+        this.say(`${count}. Latest: ${latest.text.slice(0, 140)}`);
+      } catch (error) {
+        this.say(error.message);
+      }
     },
 
     /** Violations found in one panel, or null if the audit has not run. */

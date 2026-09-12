@@ -155,6 +155,12 @@ pub struct PanelInfo {
     pub on_screen_width: f64,
     pub on_screen_height: f64,
     pub state: PanelState,
+    /// How many errors this panel's page has logged since it loaded.
+    ///
+    /// The console has always been captured and only an agent could see it, so
+    /// an error that happens at one width and nowhere else was invisible
+    /// unless somebody thought to ask.
+    pub console_errors: usize,
     /// The document this panel is actually showing. Empty until it has
     /// reported one. It can differ from the row's URL, and when it does that
     /// is worth seeing: a site that redirects on width puts two panels on two
@@ -1936,6 +1942,13 @@ pub fn info(state: &Shared) -> CanvasInfo {
                 on_screen_width: p.width,
                 on_screen_height: p.height,
                 state: p.state.clone(),
+                console_errors: state
+                    .console
+                    .lock()
+                    .unwrap()
+                    .get(&p.viewport.id)
+                    .map(|lines| lines.iter().filter(|l| l.level == "error").count())
+                    .unwrap_or(0),
                 document_url: p.document_url.clone(),
                 reported_width: p.reported_width,
                 width_mismatch: width_disagrees(p.viewport.width, p.reported_width),

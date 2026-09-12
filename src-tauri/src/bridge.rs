@@ -204,7 +204,14 @@ async fn reports_ws(
     }
     let client = params.get("client").cloned();
     let name = params.get("name").cloned().or_else(|| client.clone());
-    ws.on_upgrade(move |socket| watch_reports(ctx, socket, client, name))
+    // Console errors are opt-in. A note is somebody's judgement and is always
+    // worth waking a session for; a console line is not, and a page that
+    // throws on a timer would drown the notes it came for.
+    let with_console = params
+        .get("console")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    ws.on_upgrade(move |socket| watch_reports(ctx, socket, client, name, with_console))
 }
 
 /// Hand over everything waiting for this session, one note per frame.
@@ -253,6 +260,7 @@ async fn watch_reports(
     socket: WebSocket,
     client: Option<String>,
     name: Option<String>,
+    with_console: bool,
 ) {
     let app = ctx.app.clone();
     let state = ctx.state.clone();
@@ -290,6 +298,7 @@ async fn watch_reports(
     });
 
     // Whatever was written while this session was away goes first.
+    let mut console_seen: HashMap<String, usize> = HashMap::new();
     let mut alive = send_waiting(&mut sink, &app, &state, client.as_deref()).await;
 
     while alive {
@@ -307,7 +316,17 @@ async fn watch_reports(
             // A half-open connection, where the other end went away without
             // saying so, is only found by writing to it.
             _ = tokio::time::sleep(Duration::from_secs(20)) => {
-                alive = sink.send(Message::Ping(Vec::new())).await.is_ok();
+                // Console errors ride the same timer rather than a stream of
+                // their own, so a page throwing in a loop costs one message
+                // every twenty seconds instead of thousands.
+                if with_console {
+                    if let Some(report) = console_since(&state, &mut console_seen) {
+                        alive = sink.send(Message::Text(report)).await.is_ok();
+                    }
+                }
+                if alive {
+                    alive = sink.send(Message::Ping(Vec::new())).await.is_ok();
+                }
             }
         }
     }
@@ -315,6 +334,46 @@ async fn watch_reports(
     state.watcher_left();
     let _ = app.emit("bridge:status", status(&app, &state));
     tools::emit_report_count(&app, &state);
+}
+
+/// What each panel has logged since the last time we looked, as one line.
+///
+/// Returns `None` when nothing new has been logged, so a quiet row sends
+/// nothing at all.
+fn console_since(state: &Shared, seen: &mut HashMap<String, usize>) -> Option<String> {
+    let panels = tools::list_panels(state);
+    let console = state.console.lock().unwrap();
+
+    let mut lines: Vec<String> = Vec::new();
+    for panel in &panels {
+        let errors: Vec<&crate::state::ConsoleLine> = console
+            .get(&panel.id)
+            .map(|all| all.iter().filter(|line| line.level == "error").collect())
+            .unwrap_or_default();
+        let previously = seen.get(&panel.id).copied().unwrap_or(0);
+        if errors.len() <= previously {
+            // A reload empties the buffer, so a smaller number is a fresh page
+            // rather than errors disappearing.
+            seen.insert(panel.id.clone(), errors.len());
+            continue;
+        }
+        let fresh = &errors[previously..];
+        seen.insert(panel.id.clone(), errors.len());
+        let latest = fresh.last().map(|line| line.text.as_str()).unwrap_or("");
+        lines.push(format!(
+            "{} new console error{} at the {}px breakpoint, in the {} panel. Latest: {}",
+            fresh.len(),
+            if fresh.len() == 1 { "" } else { "s" },
+            panel.width.round(),
+            panel.name,
+            latest.chars().take(300).collect::<String>()
+        ));
+    }
+
+    if lines.is_empty() {
+        return None;
+    }
+    Some(lines.join("\n"))
 }
 
 /// Tools that must not pulse the toolbar dot.

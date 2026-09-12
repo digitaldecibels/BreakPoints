@@ -54,6 +54,7 @@ export const api = {
   breakpointSources: () => call("breakpoint_sources"),
   setBridge: (on) => call("set_bridge", { on }),
   screenshotPanel: (panel) => call("screenshot_panel", { panel }),
+  panelConsole: (panel) => call("panel_console", { panel }),
   auditAll: () => call("audit_all"),
   auditAccessibility: () => call("audit_accessibility"),
 };

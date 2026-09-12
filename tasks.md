@@ -529,7 +529,7 @@ are the paths that can quietly break it.
   image goes: a file beside the screenshots with its path in the note is the
   cheap version, and it matches how screenshots are already handed over.
 
-- [ ] **Push console errors down the socket.** `callback::console` already
+- [x] **Push console errors down the socket.** `callback::console` already
   emits `panel:console` for every error and warning a page logs, and the window
   ignores that event completely, so an error that only happens at one width is
   invisible unless an agent goes looking with `get_console`. The socket that

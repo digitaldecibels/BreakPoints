@@ -401,6 +401,18 @@
                          because the width is the thing the number is about.
                          Absent until the audit has run: nothing is not the
                          same claim as zero. -->
+                    <!-- Errors this page has logged at this width. Captured
+                         since the beginning and only ever visible to an agent,
+                         so an error that happens at one width and nowhere else
+                         was invisible unless somebody thought to ask. -->
+                    <button
+                      type="button"
+                      x-show="panel.consoleErrors"
+                      class="shrink-0 rounded-sm bg-error/15 px-1 font-mono text-[10px] leading-[13px] text-error"
+                      @click="$store.bp.showConsole(panel.id)"
+                      :title="`${panel.consoleErrors} console error${panel.consoleErrors === 1 ? '' : 's'} at ${Math.round(panel.width)}px. Click to see the latest.`"
+                      x-text="`${panel.consoleErrors}!`"
+                    ></button>
                     <button
                       type="button"
                       x-show="$store.bp.accessCountFor(panel.id) !== null"
