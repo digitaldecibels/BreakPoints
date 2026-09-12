@@ -82,7 +82,7 @@ are the paths that can quietly break it.
   the new. It heals when the sheet closes, which is what makes it hard to
   catch. Small to medium.
 
-- [ ] **Nothing stops two row rebuilds running at once.** `spawn` is async,
+- [x] **Nothing stops two row rebuilds running at once.** `spawn` is async,
   sleeps 20ms per panel, holds no exclusion, and is reachable from
   `apply_viewports`, `project::apply`, `project::restore` and two bridge tools.
   Interleaved, the second drains and closes the first's half-built list while

@@ -136,6 +136,18 @@ pub struct AppState {
     /// Where injected scripts call home. Set once at startup.
     pub endpoint: OnceLock<Endpoint>,
 
+    /// Held for the whole of `canvas::spawn`, so two row rebuilds cannot
+    /// interleave.
+    ///
+    /// `spawn` empties the row, then fills it one panel at a time with a 20ms
+    /// pause between each. Two overlapping calls used to mean the second
+    /// emptied a list the first was still filling, while the first kept
+    /// pushing panels positioned by a different layout: home positions from
+    /// two generations, a total width describing neither, labels offset from
+    /// the panels they name, and webviews nobody closed. An async mutex,
+    /// because `spawn` awaits.
+    pub spawning: tokio::sync::Mutex<()>,
+
     /// Panels whose first navigation was reported before the panel itself had
     /// been added to the row.
     ///

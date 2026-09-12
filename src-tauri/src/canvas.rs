@@ -772,6 +772,10 @@ pub async fn spawn(
     viewports: Vec<Viewport>,
     url: &str,
 ) -> Result<f64, String> {
+    // One rebuild at a time. See `AppState::spawning` for what interleaving
+    // two of them does to the row.
+    let _building = state.spawning.lock().await;
+
     let window = app.get_window("main").ok_or("no main window")?;
     let endpoint = state.endpoint.get().cloned().ok_or("callback server not started")?;
 
@@ -891,13 +895,28 @@ pub async fn spawn(
             });
         });
 
-        let webview = window
-            .add_child(
-                builder,
-                LogicalPosition::new(place.home_x, PANEL_TOP),
-                LogicalSize::new(place.width, place.height),
-            )
-            .map_err(|e| e.to_string())?;
+        let webview = match window.add_child(
+            builder,
+            LogicalPosition::new(place.home_x, PANEL_TOP),
+            LogicalSize::new(place.width, place.height),
+        ) {
+            Ok(webview) => webview,
+            Err(err) => {
+                // Half a row is not a row of the width we promised. The strip
+                // and every crop rectangle downstream are derived from this
+                // number, so leave it describing what actually exists.
+                {
+                    let mut canvas = state.canvas.lock().unwrap();
+                    canvas.total_width = canvas
+                        .panels
+                        .iter()
+                        .map(|p| p.home_x + p.width)
+                        .fold(0.0_f64, f64::max);
+                }
+                emit_canvas(app, state);
+                return Err(err.to_string());
+            }
+        };
 
         let _ = webview.set_zoom(place.scale);
         // The viewport is now the declared width, so go to the real page.
