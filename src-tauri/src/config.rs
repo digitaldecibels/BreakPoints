@@ -30,7 +30,10 @@ pub fn load(app: &AppHandle) -> AppConfig {
         return AppConfig::default();
     };
     match serde_json::from_str::<AppConfig>(&text) {
-        Ok(config) => config,
+        Ok(mut config) => {
+            config.migrate();
+            config
+        }
         Err(err) => {
             eprintln!("[breakpoints] config at {} did not parse: {err}", path.display());
             let backup = path.with_extension("json.unreadable");

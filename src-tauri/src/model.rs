@@ -128,6 +128,54 @@ pub enum FitMode {
     Uniform,
 }
 
+/// The smallest the row zoom goes: ten times smaller than actual size.
+///
+/// Chosen so that the far end of the slider means something you can say out
+/// loud: ten viewports in the space one of them took. Smaller than this and a
+/// panel is too small to read anything in, which makes the rest of the slider
+/// travel wasted.
+pub const ROW_SCALE_FLOOR: f64 = 0.1;
+
+/// Turn a slider position into the scale the row is drawn at.
+///
+/// Geometric rather than linear, because zoom is perceived in ratios: halfway
+/// along should look halfway between 1x and a tenth, and linearly it does not.
+/// At 0 this is exactly 1.0, so a slider that has never been touched changes
+/// nothing at all.
+pub fn row_scale(row_zoom: f64) -> f64 {
+    let t = row_zoom.clamp(0.0, 1.0);
+    if t == 0.0 {
+        return 1.0;
+    }
+    ROW_SCALE_FLOOR.powf(t)
+}
+
+/// Where a panel sits vertically, and whether it keeps its declared height.
+///
+/// `Top` is the honest default: a viewport's declared height is a guess at a
+/// device, and drawing it at that height from a fixed top edge is the least
+/// the app can claim. `Centre` is the same heights, balanced in the space,
+/// which reads better when the panels are much shorter than the window.
+/// `Stretch` throws the declared height away and takes the window's instead,
+/// for when you want to see as much of a page as you can. Width is never
+/// touched by any of them, because the width is the breakpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VerticalAlign {
+    #[default]
+    Top,
+    Center,
+    Stretch,
+}
+
+impl VerticalAlign {
+    /// True when the declared height is replaced by the window's.
+    pub fn stretches(self) -> bool {
+        self == VerticalAlign::Stretch
+    }
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
@@ -144,11 +192,32 @@ pub struct AppConfig {
     pub fit_mode: FitMode,
     pub edge_testing: bool,
     pub zoom_to_fit: bool,
-    /// Every panel as tall as the canvas allows, rather than at its declared
-    /// height. Remembered, because it is a way of working rather than a thing
-    /// you do once.
+    /// Where a panel sits in the space between the labels and the status bar,
+    /// and whether it keeps its own height at all.
+    ///
+    /// One setting rather than two flags, because the three answers are
+    /// alternatives: a panel is at the top, or it is centred, or it is stretched
+    /// to the window. Two booleans could say "centred and stretched", which
+    /// means nothing.
     #[serde(default)]
-    pub full_height: bool,
+    pub vertical_align: VerticalAlign,
+    /// How far the whole row is zoomed out, from 0 to 1.
+    ///
+    /// 0 is actual size. 1 is `ROW_SCALE_FLOOR`, which is ten times smaller, so
+    /// ten viewports occupy the space one did. Stored as the slider's own
+    /// position rather than as the resulting scale, because the position is
+    /// what has to come back on the slider and deriving it from a scale means
+    /// a logarithm every time the window is drawn.
+    ///
+    /// Separate from Fit, and multiplied with it. Fit answers "make this fit
+    /// the height"; this answers "show me more of the row", and doing both is
+    /// a reasonable thing to want.
+    #[serde(default)]
+    pub row_zoom: f64,
+    /// The old boolean this replaced. Read so that a config written before the
+    /// change keeps the setting it had, never written back.
+    #[serde(default, rename = "fullHeight", skip_serializing)]
+    pub legacy_full_height: Option<bool>,
     pub scroll_sync: bool,
     /// Whether a link followed in one panel is followed in all of them.
     #[serde(default = "yes")]
@@ -169,6 +238,18 @@ pub struct AppConfig {
     /// else's devtools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser: Option<String>,
+    /// Which terminal the "Start a session" button opens, by id. `None` means
+    /// none has been chosen and the first installed one wins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
+    /// The command that button runs in it.
+    ///
+    /// Editable because the agent is a matter of what you use rather than
+    /// something the app should decide: Claude Code is the default, and
+    /// anything that speaks to the bridge works the same way. `None` means the
+    /// default in `terminal.rs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_command: Option<String>,
     /// The standing instruction sent with every reported problem.
     ///
     /// A note says what is wrong. It does not say what to do about it, and an
@@ -240,13 +321,17 @@ impl Default for AppConfig {
             fit_mode: FitMode::Height,
             edge_testing: false,
             zoom_to_fit: true,
-            full_height: false,
+            vertical_align: VerticalAlign::Top,
+            legacy_full_height: None,
+            row_zoom: 0.0,
             scroll_sync: true,
             follow_links: true,
             agent_bridge: false,
             bridge_token: None,
             window: None,
             browser: None,
+            terminal: None,
+            agent_command: None,
             report_prompt: None,
             recheck_on_change: false,
         }
@@ -254,6 +339,21 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// Carry forward settings whose shape has changed.
+    ///
+    /// `fullHeight` was a boolean and is now one of three alignments. Without
+    /// this, somebody who worked with stretched panels opens the app after an
+    /// update and finds them back at their declared heights with no
+    /// explanation, which reads as the app having forgotten something.
+    pub fn migrate(&mut self) {
+        if self.legacy_full_height == Some(true) && self.vertical_align == VerticalAlign::Top {
+            self.vertical_align = VerticalAlign::Stretch;
+        }
+        // Read once. Saving never writes it back, so the next load has nothing
+        // to carry.
+        self.legacy_full_height = None;
+    }
+
     pub fn active_viewports(&self) -> Vec<Viewport> {
         self.profiles
             .get(&self.active_profile)
@@ -280,6 +380,46 @@ pub enum UrlStatus {
     Unknown,
     Ok,
     NotResponding,
+}
+
+#[cfg(test)]
+mod vertical_align_tests {
+    use super::*;
+
+    /// Somebody who worked with stretched panels keeps them after the update.
+    #[test]
+    fn the_old_full_height_boolean_becomes_stretch() {
+        let mut config = AppConfig::default();
+        config.legacy_full_height = Some(true);
+        config.migrate();
+        assert_eq!(config.vertical_align, VerticalAlign::Stretch);
+        assert_eq!(config.legacy_full_height, None, "read once, never written back");
+    }
+
+    /// An explicit choice made after the update is not overwritten by the old
+    /// boolean sitting in the same file.
+    #[test]
+    fn a_new_choice_beats_the_old_boolean() {
+        let mut config = AppConfig::default();
+        config.legacy_full_height = Some(true);
+        config.vertical_align = VerticalAlign::Center;
+        config.migrate();
+        assert_eq!(config.vertical_align, VerticalAlign::Center);
+    }
+
+    #[test]
+    fn only_stretch_replaces_the_declared_height() {
+        assert!(VerticalAlign::Stretch.stretches());
+        assert!(!VerticalAlign::Top.stretches());
+        assert!(!VerticalAlign::Center.stretches());
+    }
+
+    /// The default is the one that claims least.
+    #[test]
+    fn top_is_the_default() {
+        assert_eq!(VerticalAlign::default(), VerticalAlign::Top);
+        assert_eq!(AppConfig::default().vertical_align, VerticalAlign::Top);
+    }
 }
 
 #[cfg(test)]

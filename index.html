@@ -116,7 +116,7 @@
         <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.go()" aria-label="Load this URL in every panel">
           <span class="h-3 w-3" x-icon="'go'"></span>
         </button>
-        <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.reloadAll()" aria-label="Reload every panel">
+        <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.reloadAll()" aria-label="Reload every panel" :title="$hint('reloadAll')">
           <span class="h-3 w-3" x-icon="'reload'"></span>
         </button>
 
@@ -128,7 +128,7 @@
           :class="$store.bp.fitEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
           :aria-pressed="$store.bp.fitEnabled"
           @click="$store.bp.setFit(!$store.bp.fitEnabled)"
-          title="Scale every panel down so the whole row fits the window"
+          :title="$hint('fit', 'Scale every panel down so the whole row fits the window')"
         >
           <span class="h-3 w-3 shrink-0" x-icon="'fit'"></span>
           Fit
@@ -139,7 +139,7 @@
           :class="$store.bp.syncEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
           :aria-pressed="$store.bp.syncEnabled"
           @click="$store.bp.setSync(!$store.bp.syncEnabled)"
-          title="Scrolling one panel scrolls the rest to the same place"
+          :title="$hint('sync', 'Scrolling one panel scrolls the rest to the same place')"
         >
           <span class="h-3 w-3 shrink-0" x-icon="'sync'"></span>
           Sync
@@ -150,28 +150,193 @@
           :class="$store.bp.followEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
           :aria-pressed="$store.bp.followEnabled"
           @click="$store.bp.setFollow(!$store.bp.followEnabled)"
-          title="A link followed in one panel is followed in all of them"
+          :title="$hint('follow', 'A link followed in one panel is followed in all of them')"
         >
           <span class="h-3 w-3 shrink-0" x-icon="'follow'"></span>
           Follow
         </button>
 
-        <!-- Every panel as tall as the window allows, at its real width. The
-             declared height of a viewport is a guess at a device; sometimes
-             what you want is to see as much of the page as you can. It
-             overrides Fit, which is the opposite instruction, so turning this
-             on turns that off. -->
-        <button
-          type="button"
-          class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border bg-chrome-raised px-2.5 text-[12px] font-medium"
-          :class="$store.bp.fullHeightEnabled ? 'border-accent text-accent' : 'border-line text-text-dim'"
-          :aria-pressed="$store.bp.fullHeightEnabled"
-          @click="$store.bp.setFullHeight(!$store.bp.fullHeightEnabled)"
-          title="Every panel as tall as the window allows, at its real width"
+        <!-- Where the panels sit vertically.
+
+             One group of three rather than three toggles, because they are
+             alternatives: a panel is at the top, or centred, or stretched. Two
+             toggles could say "centred and stretched", which means nothing, and
+             that is exactly the state the old pair of buttons allowed.
+
+             Stretch is the only one that touches a panel's height, and it is
+             the one that contradicts Fit, so choosing it turns Fit off. The
+             width is never touched by any of them: the width is the breakpoint.
+
+             Icons rather than words because these are three shapes of the same
+             idea, and a group of three labels would take a third of the
+             toolbar to say what three pictures say at a glance. -->
+        <div
+          class="flex h-7 shrink-0 items-stretch overflow-hidden rounded-sm border border-line bg-chrome-raised"
+          role="group"
+          aria-label="Where the panels sit vertically"
         >
-          <span class="h-3 w-3 shrink-0" x-icon="'fullHeight'"></span>
-          Full height
-        </button>
+          <template
+            x-for="choice in [
+              { id: 'top', key: 'alignTop', icon: 'alignTop', label: 'Align to the top', hint: 'Every panel at its declared height, hanging from the same line' },
+              { id: 'center', key: 'alignCenter', icon: 'alignCenter', label: 'Centre', hint: 'Every panel at its declared height, balanced in the space it has' },
+              { id: 'stretch', key: 'alignStretch', icon: 'alignStretch', label: 'Stretch to the window', hint: 'Every panel as tall as the window allows, at its real width. Turns Fit off.' },
+            ]"
+            :key="choice.id"
+          >
+            <button
+              type="button"
+              class="grid w-7 place-items-center border-l border-line first:border-l-0"
+              :class="$store.bp.verticalAlign === choice.id
+                ? 'bg-accent/15 text-accent'
+                : 'text-text-dim hover:text-text'"
+              :aria-pressed="$store.bp.verticalAlign === choice.id"
+              :aria-label="choice.label"
+              :title="$hint(choice.key, choice.hint)"
+              @click="$store.bp.setVerticalAlign(choice.id)"
+            >
+              <span class="h-3.5 w-3.5 shrink-0" x-icon="choice.icon"></span>
+            </button>
+          </template>
+        </div>
+
+        <!-- How far out the whole row is pulled.
+
+             Fit answers "make a panel short enough to see all of", which is a
+             yes or no. This answers "show me more of the row", which is a
+             question with a hundred answers, so it is a slider and not a
+             button. Zero is actual size and the far end is ten times smaller,
+             which is ten viewports in the space one of them took.
+
+             The readout is the resulting scale rather than the slider's own
+             position, because "42%" of a slider means nothing and "42%" of
+             actual size means exactly what it says. -->
+        <div class="flex h-7 shrink-0 items-center gap-2 rounded-sm border border-line bg-chrome-raised px-2.5">
+          <span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'fit'"></span>
+          <input
+            type="range"
+            class="bp-range w-24"
+            min="0"
+            max="100"
+            step="1"
+            :value="$store.bp.rowZoomPercent"
+            @input="$store.bp.setRowZoom($event.target.value / 100)"
+            aria-label="Zoom the whole row out"
+            :title="`The row at ${$store.bp.rowScaleLabel} of actual size. Drag right to fit more widths on screen; the far end is ten times smaller.  (${$keys('zoomOut')} and ${$keys('zoomIn')})`"
+          />
+          <span
+            class="w-9 shrink-0 text-right font-mono text-[11px] tabular-nums"
+            :class="$store.bp.rowZoom ? 'text-accent' : 'text-text-faint'"
+            x-text="$store.bp.rowScaleLabel"
+          ></span>
+          <!-- Back to actual size in one press.
+
+               Dragging a slider back to exactly zero is fiddly, and "nearly
+               1:1" is not the same as 1:1: the panels are the app's one
+               promise about size. Always here rather than appearing only when
+               zoomed, so the toolbar does not change width as you drag, and
+               disabled at rest so it never looks like it would do something. -->
+          <button
+            type="button"
+            class="grid h-4 w-4 shrink-0 place-items-center rounded-sm text-text-faint enabled:hover:text-accent disabled:opacity-40"
+            :disabled="!$store.bp.rowZoom"
+            @click="$store.bp.setRowZoom(0)"
+            aria-label="Back to actual size"
+            :title="$hint('zoomReset')"
+          >
+            <span class="h-3 w-3 shrink-0" x-icon="'resetZoom'"></span>
+          </button>
+        </div>
+
+        <!-- Ask the session to run a skill.
+
+             A skill is a packaged workflow invoked by typing its name with a
+             slash in front, which is fine if you wrote it and remember it
+             exists. This lists the ones actually installed, with the
+             description their own author wrote, so choosing one needs no
+             memory at all.
+
+             The app cannot run a skill. A skill is instructions for an agent
+             and the agent is in a terminal this app does not own, so this asks
+             down the socket a note goes down. That is why it is disabled when
+             nothing is listening: there would be nobody to ask. -->
+        <div
+          class="relative shrink-0"
+          @click.outside="$store.bp.closeSkills()"
+          @keydown.escape.window="$store.bp.closeSkills()"
+        >
+          <button
+            type="button"
+            class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border bg-chrome-raised px-2.5 text-[12px] font-medium disabled:opacity-50"
+            :class="$store.bp.skillsOpen ? 'border-accent text-accent' : 'border-line text-text-dim'"
+            :aria-expanded="$store.bp.skillsOpen"
+            @click="$store.bp.toggleSkills()"
+            :title="$hint('runSkill', 'Ask the listening session to run one of your skills')"
+          >
+            <span class="h-3 w-3 shrink-0" x-icon="'skill'"></span>
+            Run
+            <span class="h-3 w-3 shrink-0 opacity-60" x-icon="'caret'"></span>
+          </button>
+
+          <!-- The row is hidden while this is open, so something has to
+               occupy the space it left. Without this the panels appear to have
+               been closed rather than moved out of the way. -->
+          <div
+            x-show="$store.bp.skillsOpen"
+            x-cloak
+            class="fixed inset-0 top-14 z-10 bg-bg/80"
+            @click="$store.bp.closeSkills()"
+            aria-hidden="true"
+          ></div>
+          <div
+            x-show="$store.bp.skillsOpen"
+            x-cloak
+            class="absolute left-0 top-8 z-30 w-[380px] overflow-hidden rounded-sm border border-line bg-chrome-raised shadow-lg"
+          >
+            <!-- Nothing to ask. The menu still opens, because the list is
+                 worth reading on its own and because this is the only place
+                 that offers the way out of it. -->
+            <div
+              x-show="!$store.bp.reportWatching"
+              class="flex items-center gap-2 border-b border-line bg-warn/10 px-3 py-2 text-[11px] text-warn"
+            >
+              <span class="flex-1">Nothing is listening, so there is nobody to run these.</span>
+              <button
+                type="button"
+                x-show="$store.bp.terminals.terminals.length"
+                class="shrink-0 whitespace-nowrap rounded-sm border border-warn/60 px-2 py-0.5 font-medium"
+                :disabled="$store.bp.startingSession"
+                @click="$store.bp.startAgentSession()"
+                x-text="$store.bp.startingSession ? 'Starting...' : 'Start a session'"
+              ></button>
+            </div>
+            <div class="max-h-80 overflow-y-auto">
+              <template x-for="skill in $store.bp.skills" :key="skill.path">
+                <button
+                  type="button"
+                  class="block w-full border-b border-line px-3 py-2 text-left last:border-b-0 enabled:hover:bg-chrome disabled:opacity-60"
+                  :disabled="!$store.bp.reportWatching"
+                  @click="$store.bp.runSkill(skill.name)"
+                >
+                  <div class="flex items-baseline gap-2">
+                    <span class="min-w-0 flex-1 truncate font-mono text-[12px] text-text" x-text="skill.name"></span>
+                    <!-- Where it came from. A skill that only exists in this
+                         project behaves differently from one that follows you
+                         around, and the menu is the only place to say so. -->
+                    <span class="shrink-0 text-[10px] text-text-faint" x-text="skill.scope"></span>
+                  </div>
+                  <div
+                    x-show="skill.description"
+                    class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-text-dim"
+                    x-text="skill.description"
+                  ></div>
+                </button>
+              </template>
+            </div>
+            <div x-show="!$store.bp.skills.length" class="px-3 py-3 text-[12px] text-text-faint">
+              No skills found in ~/.claude/skills or this project.
+            </div>
+          </div>
+        </div>
 
         <!-- Marking a problem. While this is on, a click in a panel describes
              the thing under the pointer instead of following a link, so it has
@@ -182,37 +347,17 @@
           :class="$store.bp.picking ? 'border-accent text-accent' : 'border-line text-text-dim'"
           :aria-pressed="$store.bp.picking"
           @click="$store.bp.setPicking(!$store.bp.picking)"
-          title="Point at what is wrong in a panel and describe it, with the breakpoint width attached. Command-shift-R toggles this, and a command-shift click inside a panel describes something without turning it on at all."
+          :title="$hint('toggleReport', 'Point at what is wrong in a panel and describe it, with the breakpoint width attached. A command-shift click inside a panel describes something without turning this on at all.')"
         >
           <span class="h-3 w-3 shrink-0" x-icon="'report'"></span>
           Report
         </button>
-        <!-- Which session a note will be sent to. Absent until one claims,
-             because with nothing claimed the only collector is the copy
-             button beside it and saying "nobody" would be noise.
-
-             The arrow fills in when that session is actually holding a socket
-             open. Claimed and listening are different things: a claim survives
-             a session ending, and a note addressed to a session that went away
-             waits in the queue rather than arriving anywhere. The colour is
-             the only warning you get that a note will wait. -->
-        <span
-          x-show="$store.bp.reportOwner"
-          class="hidden shrink-0 items-center gap-1 whitespace-nowrap text-[11px] md:inline-flex"
-          :class="$store.bp.reportWatching ? 'text-accent' : 'text-text-dim'"
-          :title="$store.bp.reportWatching
-            ? `The ${$store.bp.reportOwner?.name} session is listening, so a note arrives there as you send it. Running /run-breakpoints in another session moves them.`
-            : `Notes are addressed to the ${$store.bp.reportOwner?.name} session, but nothing is listening, so they wait here and go to your clipboard. Run /run-breakpoints in that session again.`"
-        >
-          <span :class="$store.bp.reportWatching ? 'text-accent' : 'text-text-faint'">&rarr;</span>
-          <span class="max-w-32 truncate" x-text="$store.bp.reportOwner?.name"></span>
-        </span>
         <button
           type="button"
           x-show="$store.bp.reportCount"
           class="h-7 shrink-0 whitespace-nowrap rounded-sm border border-accent bg-chrome-raised px-2.5 text-[12px] font-medium text-accent"
           @click="$store.bp.copyReports()"
-          :title="`Copy ${$store.bp.reportCount} note${$store.bp.reportCount === 1 ? '' : 's'} and clear them`"
+          :title="`Copy ${$store.bp.reportCount} note${$store.bp.reportCount === 1 ? '' : 's'} and clear them  (${$keys('copyNotes')})`"
         >
           <span x-text="$store.bp.reportCount"></span>
         </button>
@@ -226,6 +371,7 @@
           class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border bg-chrome-raised px-2.5 text-[12px] font-medium disabled:opacity-60"
           :class="$store.bp.access.report?.widthSpecificCount ? 'border-warn text-warn' : 'border-line text-text-dim'"
           :disabled="$store.bp.access.running"
+          :data-shortcut="$keys('accessibility')"
           @click="$store.bp.runAccessibilityAudit()"
           :title="$store.bp.access.report
             ? `${$store.bp.access.report.violationsTotal} violations, ${$store.bp.access.report.widthSpecificCount} of them only at some widths. Click to run again.`
@@ -274,7 +420,7 @@
           <span x-text="$store.bp.bridge.active ? 'Agent working' : ($store.bp.reportWatching ? 'Session listening' : 'Agent bridge')"></span>
         </button>
 
-        <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.openSettings()" aria-label="Settings">
+        <button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim hover:text-text" @click="$store.bp.openSettings()" aria-label="Settings" :title="$hint('settings')">
           <span class="h-3 w-3" x-icon="'gear'"></span>
         </button>
         </div>
@@ -378,6 +524,18 @@
                       :title="`${panel.name} is loading`"
                     ></span>
                     <div class="truncate text-[12px] leading-[15px] font-[590] text-text" x-text="panel.name"></div>
+                    <!-- A note was written at this width and nothing has been
+                         said back about it yet.
+
+                         On the label rather than only in the bar at the bottom,
+                         because the width is what the note was about. It clears
+                         when the session answers, so a row of clear labels
+                         means everything you flagged has had a reply. -->
+                    <span
+                      x-show="$store.bp.unansweredFor(panel.id)"
+                      class="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
+                      :title="`${$store.bp.unansweredFor(panel.id)} note${$store.bp.unansweredFor(panel.id) === 1 ? '' : 's'} from this width, not answered yet`"
+                    ></span>
                   </div>
                   <div class="flex items-center gap-1.5">
                     <div
@@ -465,6 +623,276 @@
               </div>
             </div>
           </template>
+
+          <!-- The last note, and what became of it.
+
+               Sending a note used to produce a notice that faded after five
+               seconds, so a few minutes later the only way to find out whether
+               anything had been received was to send another one. This says so
+               permanently, and says it in the one band a panel can never
+               cover: `available_height` in canvas.rs already subtracts
+               BOTTOM_MARGIN (24) and STRIP_H (12), so the 24px above the pan
+               strip is free and this costs the panels no height at all.
+
+               Three facts, left to right. Whether anything is listening, what
+               the last note said, and what happened to it. The button to start
+               a session appears on the right when nothing is, which is exactly
+               when it is worth offering. -->
+          <!-- The sitting so far, dropped up from the bar.
+
+               The bar holds one note, which answers "did that last one send"
+               and not "what have I sent since I sat down". This is the second
+               question, and it drops upwards because there is nothing below the
+               bar to drop into. It lives outside the bar so the bar's own
+               `overflow` and fixed height cannot clip it. -->
+          <div
+            x-show="$store.bp.notesOpen && $store.bp.recentNotes.length"
+            x-cloak
+            @click.outside="$store.bp.notesOpen = false"
+            class="absolute bottom-9 left-3 z-30 w-[520px] max-w-[calc(100%-24px)] overflow-hidden rounded-sm border border-line bg-chrome-raised shadow-lg"
+          >
+            <div class="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[11px] text-text-dim">
+              <span class="flex-1">This sitting, newest first</span>
+              <button
+                type="button"
+                class="text-text-faint hover:text-text"
+                @click="$store.bp.notesOpen = false"
+                aria-label="Close the list"
+              >
+                &times;
+              </button>
+            </div>
+            <div class="max-h-64 overflow-y-auto">
+              <template x-for="note in $store.bp.recentNotes" :key="note.id">
+                <div class="border-b border-line px-3 py-2 text-[11px] last:border-b-0">
+                  <div class="flex items-baseline gap-2">
+                    <span class="shrink-0 font-mono text-text-dim" x-text="`${Math.round(note.width)}px`"></span>
+                    <span class="min-w-0 flex-1 truncate text-text" x-text="note.note"></span>
+                    <span
+                      class="shrink-0 whitespace-nowrap"
+                      :class="note.reply ? 'text-accent' : (note.delivered ? 'text-text-dim' : 'text-text-faint')"
+                      x-text="$store.bp.fateOf(note)"
+                    ></span>
+                  </div>
+                  <!-- The answer under the note it answers, which is the only
+                       place it means anything. -->
+                  <div
+                    x-show="note.reply"
+                    class="mt-1 flex gap-1.5 text-[11px] text-text-dim"
+                  >
+                    <span class="shrink-0 text-text-faint" aria-hidden="true">&crarr;</span>
+                    <span class="min-w-0" x-text="note.reply?.text"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <div
+            class="absolute bottom-3 left-0 right-0 flex h-6 items-center gap-3 border-t border-line bg-chrome px-3 text-[11px]"
+            role="status"
+            aria-label="The last note sent"
+          >
+            <!-- Listening or not. The dot is the same distinction the toolbar
+                 arrow draws: a claim is not a connection. -->
+            <span
+              class="flex shrink-0 items-center gap-1.5"
+              :class="$store.bp.reportWatching ? 'text-accent' : 'text-text-faint'"
+              :title="$store.bp.reportWatching
+                ? `The ${$store.bp.reportOwner?.name ?? 'connected'} session is listening, so a note arrives there as you send it.`
+                : ($store.bp.reportOwner
+                    ? `Notes are addressed to ${$store.bp.reportOwner.name}, but it is not listening any more, so they wait here and go to your clipboard. Run /run-breakpoints in that session again.`
+                    : 'Nothing is listening, so a note waits here and goes to your clipboard.')"
+            >
+              <span
+                class="h-1.5 w-1.5 shrink-0 rounded-full"
+                :class="$store.bp.reportWatching ? 'bg-accent' : 'bg-text-faint'"
+                aria-hidden="true"
+              ></span>
+              <!-- Three states, not two. Listening names the session. Nothing
+                   claimed says so. A session that claimed your notes and then
+                   went away is the third and the one worth warning about: the
+                   next note waits in the queue rather than arriving anywhere,
+                   and naming it is how you know which terminal to go back to. -->
+              <span
+                x-text="$store.bp.reportWatching
+                  ? ($store.bp.reportOwner?.name ?? 'Listening')
+                  : ($store.bp.reportOwner
+                      ? `${$store.bp.reportOwner.name}, not listening`
+                      : 'Nothing is listening')"
+                class="max-w-48 truncate"
+              ></span>
+            </span>
+
+            <!-- The note itself. The width first, because the width is the
+                 point of the app, then the sentence that was typed, then the
+                 mark saying what became of it.
+
+                 The mark has three states and each one is a claim. The ring
+                 turns while the note is on its way. It draws closed with a
+                 tick inside it only once a session holding a socket open has
+                 been handed the note, which is `report:delivered` and nothing
+                 weaker. A note with nothing listening gets neither: it shows a
+                 hollow ring, because it is waiting rather than travelling. -->
+            <!-- What the session is doing right now.
+
+                 The toolbar has a dot that pulses, which says something is
+                 happening and nothing about what. This says which tool, so a
+                 row that has gone still for ten seconds is explained rather
+                 than worrying. It takes the note's place while it runs, because
+                 it is the more current fact. -->
+            <span
+              x-show="$store.bp.sessionDoing"
+              class="flex min-w-0 flex-1 items-center gap-2 text-accent"
+            >
+              <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-opacity="0.25" stroke-width="1.5" />
+                <path class="bp-spinner" d="M8 1a7 7 0 0 1 7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+              <span class="min-w-0 truncate" x-text="$store.bp.sessionDoing"></span>
+            </span>
+
+            <!-- Clickable, because the list of the sitting has to hang off
+                 something and this is the thing it is a longer version of.
+                 A plain button so it is reachable by keyboard. -->
+            <button
+              type="button"
+              x-show="!$store.bp.sessionDoing"
+              class="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 text-left hover:bg-chrome-raised disabled:hover:bg-transparent"
+              :disabled="!$store.bp.recentNotes.length"
+              :aria-expanded="$store.bp.notesOpen"
+              @click="$store.bp.toggleNotes()"
+              :title="$store.bp.recentNotes.length
+                ? `Show the ${$store.bp.recentNotes.length} note${$store.bp.recentNotes.length === 1 ? '' : 's'} from this sitting`
+                : ''"
+            >
+              <template x-if="$store.bp.lastReport">
+                <span class="flex min-w-0 items-center gap-2">
+                  <!-- Turning: still on its way. -->
+                  <svg
+                    x-show="$store.bp.lastReportMark === 'spinning'"
+                    class="h-3.5 w-3.5 shrink-0 text-text-dim"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-opacity="0.25" stroke-width="1.5" />
+                    <path
+                      class="bp-spinner"
+                      d="M8 1a7 7 0 0 1 7 7"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+
+                  <!-- Closed, with a tick drawn inside it: a session has it.
+                       `:key` restarts both animations for each new note, which
+                       an element reused across notes would otherwise skip. -->
+                  <template x-if="$store.bp.lastReportMark === 'tick'">
+                    <svg
+                      :key="$store.bp.lastReport.at"
+                      class="h-3.5 w-3.5 shrink-0 text-accent"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <circle
+                        class="bp-ring"
+                        cx="8"
+                        cy="8"
+                        r="7"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        transform="rotate(-90 8 8)"
+                      />
+                      <path
+                        class="bp-tick"
+                        d="M4.6 8.4 7 10.8l4.4-5"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </template>
+
+                  <!-- Waiting, so neither. -->
+                  <svg
+                    x-show="$store.bp.lastReportMark === 'none'"
+                    class="h-3.5 w-3.5 shrink-0 text-text-faint"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2.5" />
+                  </svg>
+
+                  <span
+                    class="shrink-0 font-mono text-text-dim"
+                    x-text="`${$store.bp.lastReport.width}px`"
+                  ></span>
+                  <span class="min-w-0 truncate text-text" x-text="$store.bp.lastReport.note"></span>
+                  <span class="shrink-0 text-text-faint" aria-hidden="true">&middot;</span>
+                  <span
+                    class="shrink-0 whitespace-nowrap"
+                    :class="$store.bp.lastReportMark === 'tick' ? 'text-accent' : 'text-text-dim'"
+                    x-text="$store.bp.lastReportFate"
+                  ></span>
+                </span>
+              </template>
+              <template x-if="!$store.bp.lastReport">
+                <span class="truncate text-text-faint">No notes sent yet this session.</span>
+              </template>
+              <span
+                x-show="$store.bp.recentNotes.length > 1"
+                class="shrink-0 text-text-faint"
+                x-text="`+${$store.bp.recentNotes.length - 1} more`"
+              ></span>
+            </button>
+
+            <!-- What the session said back.
+
+                 Notes only ever went one way, so whatever was decided about
+                 one happened in a window you were not looking at. This is the
+                 first line of the answer, and the button beside it brings that
+                 terminal forward to read the rest. It focuses the session that
+                 is already running rather than starting another, because a
+                 second session would take the notes off the first. -->
+            <span
+              x-show="$store.bp.lastReply"
+              class="flex min-w-0 shrink items-center gap-1.5 border-l border-line pl-3"
+              :title="$store.bp.lastReply ? `${$store.bp.lastReply.from}: ${$store.bp.lastReply.text}` : ''"
+            >
+              <span class="shrink-0 text-text-faint" aria-hidden="true">&crarr;</span>
+              <span class="shrink-0 max-w-24 truncate text-text-dim" x-text="$store.bp.lastReply?.from"></span>
+              <span class="min-w-0 truncate text-text" x-text="$store.bp.lastReply?.text"></span>
+              <button
+                type="button"
+                class="h-[18px] shrink-0 whitespace-nowrap rounded-sm border border-line px-2 text-[11px] font-medium text-text-dim hover:border-accent hover:text-accent"
+                @click="$store.bp.focusTerminal()"
+                title="Bring the session's terminal forward and read the rest"
+              >
+                Focus the terminal
+              </button>
+            </span>
+
+            <!-- Start a session.
+
+                 Offered only when nothing is listening, because when something
+                 is, pressing it would start a second session that takes the
+                 notes off the first. Hidden entirely when there is no terminal
+                 to open, rather than failing at the moment of use. -->
+            <button
+              type="button"
+              x-show="!$store.bp.reportWatching && $store.bp.terminals.terminals.length"
+              class="h-[18px] shrink-0 whitespace-nowrap rounded-sm border border-accent px-2 text-[11px] font-medium text-accent hover:bg-chrome-raised disabled:opacity-60"
+              :disabled="$store.bp.startingSession"
+              @click="$store.bp.startAgentSession()"
+              :title="`Open ${$store.bp.terminals.terminals.find(t => t.id === $store.bp.terminals.active)?.name ?? 'a terminal'} at this project and run: ${$store.bp.terminals.command}`"
+              x-text="$store.bp.startingSession ? 'Starting...' : 'Start a session'"
+            ></button>
+          </div>
 
           <!-- Pan strip, along the bottom edge. Panels track it with zero
                transition. A sideways trackpad swipe anywhere does the same
@@ -1014,6 +1442,30 @@
                   browser, at that panel's width.
                 </p>
 
+                <!-- Every shortcut, from the one table the handler reads, so
+                     this list cannot fall behind the keys it documents. A
+                     tooltip only helps somebody already hovering the right
+                     button; this is for everyone else. -->
+                <div class="mt-6 border-t border-line pt-4">
+                  <div class="flex items-center gap-1.5 text-[12px] font-medium text-text-dim">
+                    <span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'key'"></span>
+                    Keyboard
+                  </div>
+                  <div class="mt-2 grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
+                    <template x-for="shortcut in shortcuts" :key="shortcut.id">
+                      <div class="flex items-baseline gap-3 text-[12px]">
+                        <span class="min-w-0 flex-1 truncate text-text-dim" x-text="shortcut.label"></span>
+                        <kbd class="shrink-0 rounded-sm border border-line bg-chrome-raised px-1.5 py-0.5 font-mono text-[11px] text-text" x-text="shortcut.mac"></kbd>
+                      </div>
+                    </template>
+                  </div>
+                  <p class="mt-2 text-[12px] leading-5 text-text-faint">
+                    Inside a panel, a command-shift click describes whatever is
+                    under the pointer without arming anything. The arrow keys pan
+                    the row, and holding shift pans further.
+                  </p>
+                </div>
+
                 <!-- Said plainly, because it is the first thing anyone asks and
                      there is no setting that would make it otherwise. -->
                 <p class="mt-3 border-t border-line pt-3 text-[12px] leading-5 text-text-faint">
@@ -1053,6 +1505,66 @@
                       Its name then shows beside the Report button, and the
                       arrow lights up while it is listening. Run it elsewhere to
                       move notes there.
+                    </p>
+
+                    <!-- The same thing without having to remember it.
+
+                         A terminal at the project root running the command
+                         below. Opening the socket is the claim, so nothing
+                         else has to be pressed after this. The picker is here
+                         rather than in General because the command is the
+                         interesting half and it only means anything next to
+                         the step it replaces. -->
+                    <div class="mt-2.5 rounded-sm border border-line p-2.5" x-show="terminals.length">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          class="h-7 shrink-0 whitespace-nowrap rounded-sm border border-accent px-2.5 text-[12px] font-medium text-accent hover:bg-chrome-raised disabled:opacity-60"
+                          :disabled="$store.bp.startingSession"
+                          @click="$store.bp.startAgentSession()"
+                          x-text="$store.bp.startingSession ? 'Starting...' : 'Or start one for me'"
+                        ></button>
+                        <span class="text-[12px] text-text-dim">in</span>
+                        <select
+                          class="h-[26px] rounded-sm border border-line bg-chrome-raised px-2 text-[12px] text-text"
+                          x-model="terminal"
+                          @change="savePreferences"
+                          aria-label="Which terminal to open"
+                        >
+                          <template x-for="option in terminals" :key="option.id">
+                            <option :value="option.id" x-text="option.name"></option>
+                          </template>
+                        </select>
+                      </div>
+                      <label class="mt-2 block text-[11px] text-text-dim" for="agent-command">
+                        running
+                      </label>
+                      <input
+                        id="agent-command"
+                        type="text"
+                        class="mt-1 block w-full rounded-sm border border-line bg-chrome-raised px-2 py-1 font-mono text-[11px] text-text outline-none focus:border-accent"
+                        x-model="agentCommand"
+                        @change="savePreferences"
+                        spellcheck="false"
+                        :placeholder="defaultAgentCommand"
+                      />
+                      <p class="mt-1.5 text-[11px] leading-4 text-text-faint">
+                        Any agent that can reach the bridge works here. Leave it
+                        empty to go back to
+                        <span class="font-mono" x-text="defaultAgentCommand"></span>.
+                      </p>
+                      <!-- iTerm is the only one that takes neither a script nor
+                           arguments, so it has to be driven by AppleScript, and
+                           that needs permission. Saying so beats a prompt
+                           nobody expected, or a button that appears to do
+                           nothing while a prompt waits behind the window. -->
+                      <p x-show="terminalNeedsPermission" class="mt-1.5 text-[11px] leading-4 text-warn">
+                        macOS will ask to let Break/Points control iTerm the
+                        first time. Terminal needs no permission.
+                      </p>
+                    </div>
+                    <p class="mt-2 text-[12px] leading-5 text-text-faint" x-show="!terminals.length">
+                      No terminal was found to start one for you.
                     </p>
                   </div>
 

@@ -153,3 +153,104 @@ input {
     opacity: 0.5;
   }
 }
+
+/* Sending a note, and the note landing.
+ *
+ * A note used to produce a line of text that faded, so "did that send" had no
+ * answer a minute later. These three are the answer: the ring turns while the
+ * note is in flight, then draws itself closed, then the tick draws inside it.
+ * The tick is only ever shown for a note that actually reached a session, so
+ * the animation is a claim the app can stand behind rather than decoration. */
+@keyframes bp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bp-draw-ring {
+  from {
+    stroke-dashoffset: 44;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes bp-draw-tick {
+  from {
+    stroke-dashoffset: 12;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.bp-spinner {
+  transform-origin: 50% 50%;
+  animation: bp-spin 0.7s linear infinite;
+}
+
+/* 44 is the circumference of the r=7 circle these are drawn on. */
+.bp-ring {
+  stroke-dasharray: 44;
+  stroke-dashoffset: 44;
+  animation: bp-draw-ring 0.34s ease-out forwards;
+}
+
+.bp-tick {
+  stroke-dasharray: 12;
+  stroke-dashoffset: 12;
+  /* Starts as the ring finishes, so it reads as one movement. */
+  animation: bp-draw-tick 0.24s ease-out 0.28s forwards;
+}
+
+/* Somebody who has asked for less movement still gets the result, drawn
+ * rather than animated into place. */
+@media (prefers-reduced-motion: reduce) {
+  .bp-spinner,
+  .bp-ring,
+  .bp-tick {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* The row zoom slider.
+ *
+ * A webview draws a native range control that ignores the palette, so it is
+ * drawn here instead: a thin track the colour of a border, and a small round
+ * thumb in the text colour that turns to the accent while it is being used. */
+.bp-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 14px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.bp-range::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-line);
+}
+
+.bp-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--color-text-dim);
+}
+
+.bp-range:hover::-webkit-slider-thumb,
+.bp-range:active::-webkit-slider-thumb {
+  background: var(--color-accent);
+}
+
+.bp-range:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

@@ -119,6 +119,7 @@ pub fn start(app: AppHandle, state: Shared) -> Result<Endpoint, String> {
         .route("/p/wheel", post(on_wheel))
         .route("/p/nav", post(on_nav))
         .route("/p/report", post(on_report))
+        .route("/p/start-agent", post(on_start_agent))
         .with_state(Arc::new(ctx));
 
     tauri::async_runtime::spawn(async move {
@@ -181,6 +182,21 @@ async fn on_nav(State(ctx): State<Arc<Ctx>>, body: String) -> impl IntoResponse 
 async fn on_report(State(ctx): State<Arc<Ctx>>, body: String) -> impl IntoResponse {
     if let Some(msg) = parse::<ReportIn>(&body) {
         report(&ctx.app, &ctx.state, &ctx.nonce, msg);
+    }
+    ok()
+}
+
+/// The report form asking for a session, when it has told you nothing is
+/// listening. Same launch as the button in the status bar.
+async fn on_start_agent(State(ctx): State<Arc<Ctx>>, body: String) -> impl IntoResponse {
+    #[derive(serde::Deserialize)]
+    struct Bare {
+        nonce: String,
+    }
+    if let Some(msg) = parse::<Bare>(&body) {
+        if msg.nonce == ctx.nonce {
+            crate::commands::start_agent_session_now(&ctx.app, &ctx.state);
+        }
     }
     ok()
 }
@@ -307,7 +323,11 @@ fn report(app: &AppHandle, state: &Shared, nonce: &str, msg: ReportIn) {
     // all hand over the same words.
     report.text = report.describe();
     state.push_report(report.clone());
+    // Into the record as well as the queue. The queue empties as notes are
+    // collected; the record is what the status bar's list is drawn from.
+    state.remember_note(&report);
     let _ = app.emit("report:new", &report);
+    crate::tools::emit_recent_notes(app, state);
     crate::tools::emit_report_count(app, state);
 
     // The picture is taken after the note is queued, not before, so a capture
@@ -406,6 +426,14 @@ pub fn dispatch_from(
                 report(app, state, &nonce, msg);
             }
         }
+        // The report form's own way of connecting a session, for when it says
+        // nothing is listening. The same launch the button in the status bar
+        // does, asked for from inside a panel.
+        "/p/start-agent" => {
+            if body.get("nonce").and_then(serde_json::Value::as_str) == Some(nonce.as_str()) {
+                crate::commands::start_agent_session_now(app, state);
+            }
+        }
         _ => {}
     }
 }
@@ -435,7 +463,15 @@ mod tests {
         // Rust, and nothing but this test holds the two halves together. A
         // path renamed on one side goes quiet rather than failing loudly.
         let script = include_str!("canvas.rs");
-        for path in ["/p/scroll", "/p/console", "/p/ready", "/p/wheel", "/p/nav", "/p/report"] {
+        for path in [
+            "/p/scroll",
+            "/p/console",
+            "/p/ready",
+            "/p/wheel",
+            "/p/nav",
+            "/p/report",
+            "/p/start-agent",
+        ] {
             assert!(
                 script.contains(&format!("post(\"{path}\"")),
                 "nothing in the injected script sends {path}"

@@ -10,6 +10,33 @@ import { LABEL_TOP } from "./metrics.js";
 /** Scan rows arrive as their detectors finish; the sheet reveals them 60ms apart. */
 const ROW_STAGGER = 60;
 
+/** What a running tool is doing, in words rather than in its own name.
+ *
+ * The status bar is read by somebody looking at their layout, not by somebody
+ * reading an API. Anything not named here falls back to its own name with the
+ * underscores taken out, which stays readable for tools added later. */
+const TOOL_WORDS = {
+  audit_all: "Checking every width",
+  audit_accessibility: "Running the accessibility checks",
+  verify_breakpoints: "Asking the page what it changes at",
+  screenshot_panel: "Taking a screenshot",
+  screenshot_all: "Photographing every width",
+  take_baseline: "Taking a baseline",
+  compare_to_baseline: "Comparing against the baseline",
+  diff_panel: "Comparing against the design",
+  scan_breakpoints: "Rescanning the project",
+  detect_project: "Reading the project",
+  write_project_file: "Writing breakpoints.md",
+  navigate: "Pointing the row somewhere new",
+  reload: "Reloading the row",
+  eval_js: "Measuring a panel",
+  eval_chrome: "Measuring the app itself",
+  get_dom: "Reading the markup",
+  get_console: "Reading the console",
+  set_viewport: "Resizing a panel",
+  load_profile: "Switching profile",
+};
+
 export function registerStore(Alpine) {
   Alpine.store("bp", {
     ready: false,
@@ -47,7 +74,15 @@ export function registerStore(Alpine) {
     picking: false,
     // Every panel as tall as the window allows. Overrides Fit, which asks for
     // the opposite, so the two are kept out of step here as well as in Rust.
-    fullHeightEnabled: false,
+    /** Where the panels sit vertically: "top", "center" or "stretch". */
+    verticalAlign: "top",
+    /** How far the whole row is zoomed out, 0 to 1. Zero is actual size. */
+    rowZoom: 0,
+    /** The skills installed on this machine and in this project, with the
+     *  description each one's author wrote. Read from disk, so a skill written
+     *  five minutes ago is in the menu. */
+    skills: [],
+    skillsOpen: false,
     // Where this project's screenshots land. Resolved by Rust, so it is a real
     // path rather than "the default", and shown so nobody has to go looking.
     shotDir: "",
@@ -65,6 +100,33 @@ export function registerStore(Alpine) {
      *  joining a queue, so it changes both what the toolbar says and whether
      *  the clipboard is touched. */
     reportWatching: false,
+    /** The last note written, and what became of it. The status bar along the
+     *  bottom shows this, because until now the only sign a note had gone
+     *  anywhere was a notice that faded after five seconds, and the answer to
+     *  "did that send" was to write another one. Null until the first note. */
+    lastReport: null,
+    /** True while the chrome is collecting the queue itself, so a queue
+     *  reaching zero because of the copy button is not mistaken for a session
+     *  having been handed the notes. */
+    collecting: false,
+    /** Which terminals are installed and what the session button runs. Read
+     *  once at boot, because installing a terminal mid-session is not a case
+     *  worth re-checking for. */
+    terminals: { terminals: [], active: null, command: "", defaultCommand: "" },
+    startingSession: false,
+    /** The last thing a session said back about a note, so the answer arrives
+     *  in the window rather than only in a terminal you are not looking at.
+     *  Kept by Rust as well, so a chrome reload does not lose it. */
+    lastReply: null,
+    /** The last ten notes with what became of each, newest first, kept by Rust
+     *  so a chrome reload does not lose the sitting. Drawn as the list that
+     *  drops up from the status bar and as the dots on the panel labels. */
+    recentNotes: [],
+    /** Whether that list is open. */
+    notesOpen: false,
+    /** Set while a note is on its way and the app does not yet know whether it
+     *  landed. Held for a moment on purpose so the ring is seen turning. */
+    _sendingTimer: null,
 
     // The accessibility audit. `report` is kept after the sheet closes, so the
     // label strip can keep showing which panel had what.
@@ -125,6 +187,10 @@ export function registerStore(Alpine) {
       const boot = await api.boot();
       this.absorb(boot.snapshot);
       this.profiles = await api.listProfiles();
+      // The status bar's button needs to know whether there is a terminal to
+      // open before it offers to open one.
+      this.loadTerminals();
+      this.loadSkills();
 
       if (boot.restored) {
         await this.absorbProject(boot.restored);
@@ -146,6 +212,8 @@ export function registerStore(Alpine) {
       this.reportOwner = snapshot.reportOwner ?? null;
       this.reportCount = snapshot.reportCount ?? 0;
       this.reportWatching = snapshot.bridge?.watching ?? false;
+      this.lastReply = snapshot.lastReply ?? this.lastReply;
+      this.recentNotes = snapshot.recentNotes ?? this.recentNotes;
       this.shotDir = snapshot.shotDir ?? this.shotDir;
       this.reportPrompt = snapshot.reportPrompt ?? this.reportPrompt;
       this.activeProfile = snapshot.config?.activeProfile ?? "default";
@@ -167,7 +235,8 @@ export function registerStore(Alpine) {
       this.syncEnabled = canvas.scrollSync;
       this.followEnabled = canvas.followLinks ?? this.followEnabled;
       this.picking = canvas.picking ?? this.picking;
-      this.fullHeightEnabled = canvas.fullHeight ?? this.fullHeightEnabled;
+      this.verticalAlign = canvas.verticalAlign ?? this.verticalAlign;
+      this.rowZoom = canvas.rowZoom ?? this.rowZoom;
       this.inspecting = canvas.inspecting ?? null;
       if (canvas.url && canvas.url !== "about:blank") {
         this.canvasUrl = canvas.url;
@@ -249,8 +318,40 @@ export function registerStore(Alpine) {
       listen("reports:changed", (event) => {
         this.reportCount = event.payload?.count ?? 0;
         this.reportWatching = event.payload?.watching ?? false;
+        // A note that waited and then went. The queue emptying while a session
+        // is listening is that session being handed everything in it, which is
+        // the one case where a note's fate changes after it was written. The
+        // copy button empties the queue too, and `collecting` is how that case
+        // is told apart rather than reported as a delivery that never happened.
+        if (
+          this.lastReport?.fate === "queued" &&
+          this.reportWatching &&
+          this.reportCount === 0 &&
+          !this.collecting
+        ) {
+          this.lastReport = { ...this.lastReport, fate: "handed over" };
+        }
       });
       listen("report:new", (event) => this.absorbReport(event.payload));
+
+      // The note reached a socket a session was holding open. This is the one
+      // event that earns the tick, which is why the tick is drawn from here
+      // and not from the note being written.
+      listen("report:delivered", (event) => this.confirmDelivered(event.payload));
+
+      // The record of the sitting, from the one place that knows. Three
+      // different moments change it, and Rust emits this from all three.
+      listen("notes:changed", (event) => (this.recentNotes = event.payload ?? []));
+
+      // A new project can bring its own skills, so the menu is re-read rather
+      // than left showing the last project's.
+      listen("project:opened", () => this.loadSkills());
+
+      // The return leg: a session saying something back.
+      listen("report:reply", (event) => {
+        this.lastReply = event.payload;
+        this.say(`${event.payload.from}: ${event.payload.text}`);
+      });
       listen("reports:owner", (event) => {
         this.reportOwner = event.payload;
         this.say(`Reports are going to ${event.payload.name}.`);
@@ -466,24 +567,59 @@ export function registerStore(Alpine) {
 
     async setFit(on) {
       this.fitEnabled = on;
-      // Fit makes panels short enough to see all of; full height makes them as
+      // Fit makes panels short enough to see all of; stretch makes them as
       // tall as the window allows. Asking for both at once means nothing, so
-      // each one turns the other off rather than leaving a state where the
-      // toolbar shows two contradictory things lit up.
-      if (on && this.fullHeightEnabled) {
-        this.fullHeightEnabled = false;
-        await api.setFullHeight(false);
+      // turning fit on drops stretch back to the top rather than leaving a
+      // toolbar showing two contradictory things lit up.
+      if (on && this.verticalAlign === "stretch") {
+        this.verticalAlign = "top";
+        await api.setVerticalAlign("top");
       }
       await api.setZoomToFit(on);
     },
 
-    async setFullHeight(on) {
-      this.fullHeightEnabled = on;
-      if (on && this.fitEnabled) {
+    /** How far the whole row is zoomed out, 0 to 1.
+     *
+     *  Dragging a slider fires a change per pixel, and each one relays the
+     *  whole row in Rust. Sending every one of those would queue hundreds of
+     *  relayouts behind a drag that took a second. The number on screen follows
+     *  the thumb immediately and Rust hears the latest value every 60ms, so the
+     *  slider stays smooth and the row keeps up. */
+    setRowZoom(zoom) {
+      this.rowZoom = Math.min(1, Math.max(0, zoom));
+      if (this._zoomTimer) return;
+      this._zoomTimer = setTimeout(() => {
+        this._zoomTimer = null;
+        api.setRowZoom(this.rowZoom).catch((error) => this.say(error.message));
+      }, 60);
+    },
+
+    /** The zoom as a percentage, for the slider and its readout. */
+    get rowZoomPercent() {
+      return Math.round(this.rowZoom * 100);
+    },
+
+    /** What the row is actually drawn at, which is the number that means
+     *  something: "everything is half size" rather than "the slider is at 30".
+     *  Matches `model::row_scale` in Rust and has to stay in step with it. */
+    get rowScaleLabel() {
+      const scale = this.rowZoom === 0 ? 1 : Math.pow(0.1, this.rowZoom);
+      if (scale >= 0.995) return "1:1";
+      return `${Math.round(scale * 100)}%`;
+    },
+
+    /** Where the panels sit vertically: "top", "center" or "stretch".
+     *
+     *  One setting rather than three toggles, because the three are
+     *  alternatives. Stretch is the only one that touches a panel's height, and
+     *  it is the one that contradicts Fit. */
+    async setVerticalAlign(align) {
+      this.verticalAlign = align;
+      if (align === "stretch" && this.fitEnabled) {
         this.fitEnabled = false;
         await api.setZoomToFit(false);
       }
-      await api.setFullHeight(on);
+      await api.setVerticalAlign(align);
     },
 
     async setSync(on) {
@@ -615,6 +751,81 @@ export function registerStore(Alpine) {
       await api.stopInspecting();
     },
 
+    /** Open a terminal at the project and start the agent in it.
+     *
+     *  Nothing here waits for the session to connect: the terminal is a
+     *  separate process and the only sign it worked is the arrow in the
+     *  toolbar lighting up when the socket opens, a few seconds later. */
+    async startAgentSession() {
+      if (this.startingSession) return;
+      this.startingSession = true;
+      try {
+        const name = await api.startAgentSession();
+        this.say(`Starting a session in ${name}. It claims your notes when it connects.`);
+      } catch (error) {
+        this.say(error.message ?? String(error));
+      } finally {
+        // Long enough that a second press cannot open two terminals by
+        // accident, short enough that a failed launch can be retried.
+        setTimeout(() => (this.startingSession = false), 2500);
+      }
+    },
+
+    async loadSkills() {
+      try {
+        this.skills = await api.listSkills();
+      } catch (error) {
+        this.skills = [];
+      }
+    },
+
+    /** Open the skills menu, and hide the panels while it is open.
+     *
+     *  A panel is a separate native webview composited on top of everything the
+     *  chrome draws, so a menu that hangs below the toolbar is drawn behind the
+     *  row and cannot be lifted above it: z-index does not cross webviews,
+     *  because this is not one page with layers in it.
+     *
+     *  Only about 96px below the toolbar is never covered, and the menu needs
+     *  three times that. So it borrows what the sheets already do and takes the
+     *  panels out of the way while it is open. */
+    toggleSkills() {
+      this.skillsOpen = !this.skillsOpen;
+      api.setSheetOpen(this.skillsOpen || this.sheet !== "none");
+      if (this.skillsOpen) this.loadSkills();
+    },
+
+    closeSkills() {
+      if (!this.skillsOpen) return;
+      this.skillsOpen = false;
+      // Only bring the row back if nothing else wants it hidden.
+      api.setSheetOpen(this.sheet !== "none");
+    },
+
+    /** Ask the listening session to run one.
+     *
+     *  The app cannot run a skill: a skill is instructions for an agent, and
+     *  the agent is in a terminal this app does not own. So this asks, down the
+     *  same socket a note goes down, and says plainly when nobody was there to
+     *  hear it. */
+    async runSkill(skill) {
+      this.closeSkills();
+      try {
+        const who = await api.runSkill(skill, null);
+        this.say(`Asked ${who} to run ${skill}.`);
+      } catch (error) {
+        this.say(error.message ?? String(error));
+      }
+    },
+
+    async loadTerminals() {
+      try {
+        this.terminals = await api.listTerminals();
+      } catch (error) {
+        this.terminals = { terminals: [], active: null, command: "", defaultCommand: "" };
+      }
+    },
+
     /** Hand a panel's page to a real browser, at that panel's width. */
     async openInBrowser(panel) {
       try {
@@ -656,23 +867,171 @@ export function registerStore(Alpine) {
     // a full clipboard the signal that no session got the note.
     async absorbReport(report) {
       if (!report) return;
+      // A note that answers nothing should not sit under a stale reply, so the
+      // previous answer is cleared as soon as a new note goes out.
+      this.lastReply = null;
       if (this.reportWatching) {
         const to = this.reportOwner?.name;
-        this.say(`Sent ${Math.round(report.width)}px${to ? ` to ${to}` : ""}.`);
+        // In flight, not landed. The tick waits for `report:delivered`, and
+        // this is what turns while it does.
+        this.noteLast(report, "sending", to ?? null);
+        this.awaitDelivery(report.id);
+        this.say(`Sending ${Math.round(report.width)}px${to ? ` to ${to}` : ""}.`);
         return;
       }
       const text = this.reportText(report);
       try {
         await navigator.clipboard.writeText(text);
+        this.noteLast(report, "queued", null, true);
         this.say(`Noted ${Math.round(report.width)}px, and copied. Nothing is listening.`);
       } catch (error) {
+        this.noteLast(report, "queued", null, false);
         this.say(`Noted ${Math.round(report.width)}px. Nothing is listening.`);
+      }
+    },
+
+    /** Keep the last note for the status bar.
+     *
+     *  `note` is what was typed, without the standing instruction in front of
+     *  it or the width and selector after it, because the bar is one line and
+     *  the useful half is the sentence. */
+    noteLast(report, fate, to, copied = false) {
+      const said = (report.note ?? "").trim();
+      this.lastReport = {
+        id: report.id ?? null,
+        width: Math.round(report.width),
+        panel: report.panelName ?? "",
+        note: said || "(no description)",
+        fate,
+        to,
+        copied,
+        at: Date.now(),
+      };
+    },
+
+    /** One line saying what became of the last note. */
+    get lastReportFate() {
+      const last = this.lastReport;
+      if (!last) return "";
+      if (last.fate === "delivered") return last.to ? `sent to ${last.to}` : "sent";
+      if (last.fate === "handed over") return "waited, then handed over";
+      if (last.fate === "collected here") return "collected with the copy button";
+      if (last.fate === "sending") return "sending";
+      if (last.fate === "unconfirmed") return "sent, not confirmed";
+      return last.copied ? "waiting, copied to the clipboard" : "waiting";
+    },
+
+    /** Notes still waiting for the session to say anything about them.
+     *
+     *  A panel's label carries a dot while one of its widths is in here, which
+     *  ties the answer to the width it was about rather than to a bar at the
+     *  bottom of the window. */
+    get unansweredNotes() {
+      return this.recentNotes.filter((note) => !note.reply);
+    },
+
+    /** How many notes from this panel are still unanswered. */
+    unansweredFor(panelId) {
+      return this.unansweredNotes.filter((note) => note.panel === panelId).length;
+    },
+
+    /** One line saying what became of a note in the list. */
+    fateOf(note) {
+      if (note.reply) return "answered";
+      if (note.delivered) return note.deliveredTo ? `sent to ${note.deliveredTo}` : "sent";
+      return "waiting";
+    },
+
+    toggleNotes() {
+      if (!this.recentNotes.length) return;
+      this.notesOpen = !this.notesOpen;
+    },
+
+    /** What the connected session is doing right now, in words.
+     *
+     *  The toolbar has a dot that pulses, which says something is happening and
+     *  nothing about what. A tool name is the difference between "the app is
+     *  busy" and "it is photographing every width". */
+    get sessionDoing() {
+      if (!this.bridge?.active) return null;
+      const tool = this.bridge?.activeTool;
+      if (!tool) return "Working";
+      return TOOL_WORDS[tool] ?? tool.replace(/_/g, " ");
+    },
+
+    /** Which of the three marks the status bar draws. */
+    get lastReportMark() {
+      const fate = this.lastReport?.fate;
+      if (fate === "sending") return "spinning";
+      if (fate === "delivered" || fate === "handed over") return "tick";
+      return "none";
+    },
+
+    /** Give a note that has gone out a bounded time to be confirmed.
+     *
+     *  Without this the ring turns for ever when a socket dies between the
+     *  note being written and it being sent, which reads as "still trying"
+     *  when nothing is trying. "Not confirmed" is the honest end state: the
+     *  note left, and the app was never told it arrived. */
+    awaitDelivery(id) {
+      clearTimeout(this._sendingTimer);
+      this._sendingTimer = setTimeout(() => {
+        if (this.lastReport?.fate !== "sending") return;
+        this.lastReport =
+          this.reportCount > 0
+            ? { ...this.lastReport, fate: "queued" }
+            : { ...this.lastReport, fate: "unconfirmed" };
+      }, 6000);
+      void id;
+    },
+
+    /** A note reached a listening session. Held briefly so the ring is seen
+     *  turning before it closes, which is the whole point of showing it. */
+    confirmDelivered(payload) {
+      if (!this.lastReport) return;
+      // Match by id when both ends have one. An older note in the queue going
+      // out should not tick the note now on screen.
+      if (payload?.id && this.lastReport.id && payload.id !== this.lastReport.id) return;
+      if (this.lastReport.fate !== "sending" && this.lastReport.fate !== "queued") return;
+
+      const settle = () => {
+        clearTimeout(this._sendingTimer);
+        this.lastReport = {
+          ...this.lastReport,
+          fate: "delivered",
+          to: this.lastReport.to ?? payload?.to ?? null,
+        };
+      };
+      const spinningFor = Date.now() - (this.lastReport.at ?? 0);
+      if (spinningFor >= 450) settle();
+      else setTimeout(settle, 450 - spinningFor);
+    },
+
+    /** Bring the agent's terminal forward so the rest of its answer can be
+     *  read. Focuses the session that is already running rather than starting
+     *  another one. */
+    async focusTerminal() {
+      try {
+        await api.focusTerminal();
+      } catch (error) {
+        this.say(error.message ?? String(error));
       }
     },
 
     /** Everything not yet collected, as one block of text, and clears the list. */
     async copyReports() {
-      const reports = await api.takeReports();
+      this.collecting = true;
+      let reports;
+      try {
+        reports = await api.takeReports();
+      } finally {
+        // A tick, because the `reports:changed` event for this collection
+        // arrives after the call returns rather than before it.
+        setTimeout(() => (this.collecting = false), 0);
+      }
+      if (this.lastReport?.fate === "queued") {
+        this.lastReport = { ...this.lastReport, fate: "collected here" };
+      }
       if (!reports.length) {
         // The count comes from Rust, so an empty queue means the badge was
         // stale. Ask for the truth rather than leaving a number that lies.

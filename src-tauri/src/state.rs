@@ -214,6 +214,18 @@ pub struct AppState {
     /// makes delivery a push rather than a two second poll.
     pub report_tx: OnceLock<tokio::sync::broadcast::Sender<Report>>,
 
+    /// Things to say to a listening session that are not problem reports.
+    ///
+    /// A skill someone chose from the menu, mostly. It goes down the same
+    /// socket, because a session holding that socket open is already reading
+    /// text frames and acting on them, so this needs no new transport.
+    ///
+    /// Deliberately not the report queue. A note is evidence and is kept until
+    /// somebody proves they received it; asking for a skill to be run is an
+    /// instruction, and an instruction nobody was there to hear should expire
+    /// rather than arrive an hour later when the situation has changed.
+    pub prompt_tx: OnceLock<tokio::sync::broadcast::Sender<String>>,
+
     /// How many sessions are currently watching for notes. Drives the steady
     /// "a session is listening" state in the toolbar, which is different from
     /// the dot that pulses while a single request is in flight.
@@ -221,6 +233,8 @@ pub struct AppState {
 
     /// Set while an agent request is in flight, so the toolbar dot can pulse.
     pub bridge_active: Mutex<bool>,
+    /// Which tool that request is, so the status bar can name it.
+    pub active_tool: Mutex<Option<String>>,
 
     /// Whether the window has focus. Nobody is scrolling a panel by hand while
     /// the app is behind something else, so the pump can go much quieter.
@@ -230,6 +244,73 @@ pub struct AppState {
 
     /// Keeps the debounced file watcher alive; dropping it stops watching.
     pub watcher: Mutex<Option<crate::watcher::WatchHandle>>,
+
+    /// The last thing a session said back about a note.
+    ///
+    /// Notes only ever went one way. You described a problem, the note left,
+    /// and whatever the session decided about it happened in a window you were
+    /// not looking at. This is the return leg: a session posts a sentence back
+    /// and the status bar shows it, with a way to bring that terminal forward
+    /// and read the rest.
+    ///
+    /// Kept in Rust rather than in the chrome because the chrome reloads, and
+    /// a reply it heard as an event once would be gone.
+    pub last_reply: Mutex<Option<Reply>>,
+
+    /// The last few notes written in this sitting, newest first, with what
+    /// became of each.
+    ///
+    /// Separate from `reports`, which is a queue and empties as notes are
+    /// collected. This is a record, and it is what the status bar's list and
+    /// the dots on the panel labels are drawn from. Not written to disk: it
+    /// answers "what have I sent since I sat down", and yesterday's notes are
+    /// not part of that question.
+    pub recent_notes: Mutex<Vec<NoteRecord>>,
+}
+
+/// How many notes the record keeps. Ten is about one sitting's worth, and a
+/// list longer than that is a log rather than something you read at a glance.
+pub const RECENT_NOTES: usize = 10;
+
+/// One note, and what became of it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteRecord {
+    pub id: String,
+    /// The panel it was written in, so its label can carry a mark.
+    pub panel: String,
+    pub panel_name: String,
+    pub width: f64,
+    /// What was typed, without the standing instruction or the selector.
+    pub note: String,
+    /// How to find the element again. Kept here as well as in the queued note,
+    /// because the queue empties and this is what a session is handed when it
+    /// asks the app to explain a note it was given earlier.
+    pub selector: String,
+    pub element: String,
+    pub url: String,
+    pub at: u64,
+    /// True once a session holding a socket open has been handed it.
+    pub delivered: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivered_to: Option<String>,
+    /// What the session said back about this note, when it said anything.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply: Option<Reply>,
+}
+
+/// What a session said back about a note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reply {
+    /// The note it answers, when the session named one. A session that just
+    /// wants to say something leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_id: Option<String>,
+    /// Who said it, as the toolbar names them.
+    pub from: String,
+    pub text: String,
+    pub at: u64,
 }
 
 /// One batch of notes handed over and not yet acknowledged.
@@ -350,6 +431,23 @@ impl AppState {
 
     /// Subscribe to notes as they are written. Every watcher gets every note;
     /// filtering by who a note is addressed to is the subscriber's job.
+    /// Say something to every listening session.
+    ///
+    /// Returns how many were listening, which is the difference between the
+    /// button having done something and the button having done nothing.
+    pub fn say_to_sessions(&self, text: String) -> usize {
+        let tx = self
+            .prompt_tx
+            .get_or_init(|| tokio::sync::broadcast::channel(16).0);
+        tx.send(text).unwrap_or(0)
+    }
+
+    pub fn subscribe_prompts(&self) -> tokio::sync::broadcast::Receiver<String> {
+        self.prompt_tx
+            .get_or_init(|| tokio::sync::broadcast::channel(16).0)
+            .subscribe()
+    }
+
     pub fn subscribe_reports(&self) -> tokio::sync::broadcast::Receiver<Report> {
         self.report_tx
             .get_or_init(|| tokio::sync::broadcast::channel(64).0)
@@ -484,6 +582,69 @@ impl AppState {
     }
 
     /// Which session notes are going to, if any.
+    /// Record what a session said back, and hand it out for the event.
+    ///
+    /// The reply is also filed against a note, which is what clears the dot on
+    /// that panel's label. A session that named a note answers that one; one
+    /// that named nothing answers the newest note still waiting for an answer,
+    /// because a session that says something without naming a note is nearly
+    /// always talking about the one it was just handed.
+    pub fn set_last_reply(&self, reply: Reply) -> Reply {
+        *self.last_reply.lock().unwrap() = Some(reply.clone());
+
+        let mut recent = self.recent_notes.lock().unwrap();
+        let target = match &reply.report_id {
+            Some(id) => recent.iter_mut().find(|note| &note.id == id),
+            None => recent.iter_mut().rev().find(|note| note.reply.is_none()),
+        };
+        if let Some(note) = target {
+            note.reply = Some(reply.clone());
+        }
+        reply
+    }
+
+    /// Write a note into the record, newest last, keeping only the last few.
+    pub fn remember_note(&self, report: &Report) {
+        let mut recent = self.recent_notes.lock().unwrap();
+        recent.push(NoteRecord {
+            id: report.id.clone(),
+            panel: report.panel.clone(),
+            panel_name: report.panel_name.clone(),
+            width: report.width,
+            note: report.note.clone(),
+            selector: report.selector.clone(),
+            element: report.element.clone(),
+            url: report.url.clone(),
+            at: report.at,
+            delivered: false,
+            delivered_to: None,
+            reply: None,
+        });
+        // Oldest out of the front, so the newest `RECENT_NOTES` survive.
+        let over = recent.len().saturating_sub(RECENT_NOTES);
+        recent.drain(..over);
+    }
+
+    /// Mark a note as having reached a listening session.
+    pub fn note_delivered(&self, id: &str, to: Option<&str>) {
+        let mut recent = self.recent_notes.lock().unwrap();
+        if let Some(note) = recent.iter_mut().find(|note| note.id == id) {
+            note.delivered = true;
+            note.delivered_to = to.map(|s| s.to_string());
+        }
+    }
+
+    /// The record, newest first, which is the order it is read in.
+    pub fn recent_notes(&self) -> Vec<NoteRecord> {
+        let mut recent = self.recent_notes.lock().unwrap().clone();
+        recent.reverse();
+        recent
+    }
+
+    pub fn last_reply(&self) -> Option<Reply> {
+        self.last_reply.lock().unwrap().clone()
+    }
+
     pub fn report_owner(&self) -> Option<ClientSession> {
         self.report_owner.lock().unwrap().clone()
     }
@@ -557,6 +718,95 @@ struct SavedReports {
     owner: Option<ClientSession>,
     #[serde(default)]
     in_flight: Vec<InFlight>,
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+
+    fn note(id: &str, panel: &str) -> Report {
+        Report {
+            id: id.into(),
+            panel: panel.into(),
+            panel_name: panel.into(),
+            width: 375.0,
+            inner_width: 375.0,
+            url: String::new(),
+            title: String::new(),
+            element: String::new(),
+            selector: String::new(),
+            rect: serde_json::Value::Null,
+            note: "something".into(),
+            at: 1,
+            client: None,
+            prompt: String::new(),
+            text: String::new(),
+            image: String::new(),
+        }
+    }
+
+    fn reply(report_id: Option<&str>) -> Reply {
+        Reply {
+            report_id: report_id.map(|s| s.to_string()),
+            from: "a session".into(),
+            text: "looking".into(),
+            at: 2,
+        }
+    }
+
+    /// A session that says something without naming a note is talking about the
+    /// note it was just handed, not the oldest one still open.
+    #[test]
+    fn an_unaddressed_reply_answers_the_newest_note_waiting() {
+        let state = AppState::default();
+        state.remember_note(&note("first", "sm"));
+        state.remember_note(&note("second", "md"));
+        state.set_last_reply(reply(None));
+
+        let recent = state.recent_notes();
+        assert_eq!(recent[0].id, "second", "newest first");
+        assert!(recent[0].reply.is_some(), "the newest note was answered");
+        assert!(recent[1].reply.is_none(), "the older one was left alone");
+    }
+
+    /// Naming a note answers that one wherever it is in the list.
+    #[test]
+    fn a_named_reply_answers_the_note_it_names() {
+        let state = AppState::default();
+        state.remember_note(&note("first", "sm"));
+        state.remember_note(&note("second", "md"));
+        state.set_last_reply(reply(Some("first")));
+
+        let recent = state.recent_notes();
+        assert!(recent[1].reply.is_some(), "the one it named");
+        assert!(recent[0].reply.is_none(), "and only that one");
+    }
+
+    /// The record is a window on the sitting, not a log that grows for ever.
+    #[test]
+    fn the_record_keeps_only_the_last_few() {
+        let state = AppState::default();
+        for i in 0..(RECENT_NOTES + 5) {
+            state.remember_note(&note(&format!("n{i}"), "sm"));
+        }
+        let recent = state.recent_notes();
+        assert_eq!(recent.len(), RECENT_NOTES);
+        assert_eq!(recent[0].id, format!("n{}", RECENT_NOTES + 4), "newest kept");
+    }
+
+    /// Delivery is recorded against the note it happened to.
+    #[test]
+    fn delivery_is_written_against_the_right_note() {
+        let state = AppState::default();
+        state.remember_note(&note("first", "sm"));
+        state.remember_note(&note("second", "md"));
+        state.note_delivered("first", Some("a session"));
+
+        let recent = state.recent_notes();
+        assert!(!recent[0].delivered, "the one that did not go");
+        assert!(recent[1].delivered, "the one that did");
+        assert_eq!(recent[1].delivered_to.as_deref(), Some("a session"));
+    }
 }
 
 #[cfg(test)]

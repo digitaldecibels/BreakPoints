@@ -30,13 +30,27 @@ pub fn list_panels(state: &Shared) -> Vec<PanelInfo> {
 /// without clearing the number. Emitting the real count from the one place
 /// that knows it means the two can never disagree.
 pub fn emit_report_count(app: &AppHandle, state: &Shared) {
+    let watching = state.watching();
     let _ = app.emit(
         "reports:changed",
         json!({
             "count": state.report_count(),
-            "watching": state.watching(),
+            "watching": watching,
         }),
     );
+    // The panels need this too, not just the chrome: the report form says
+    // whether a note will reach anybody before it is written.
+    canvas::push_listening(state, watching);
+}
+
+/// The record of recent notes, whenever anything about it changes.
+///
+/// One event from one place, because three things change it at three different
+/// moments: a note being written, a note reaching a session, and a session
+/// saying something back. A chrome that only heard about the first would draw
+/// a list that never updated.
+pub fn emit_recent_notes(app: &AppHandle, state: &Shared) {
+    let _ = app.emit("notes:changed", state.recent_notes());
 }
 
 fn require_panel(state: &Shared, needle: &str) -> Result<String, String> {

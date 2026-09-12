@@ -15,7 +15,7 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, Wry,
 };
 
-use crate::model::{FitMode, PanelState, Viewport};
+use crate::model::{FitMode, PanelState, VerticalAlign, Viewport};
 use crate::state::{Endpoint, Shared};
 
 // The chrome's vertical rhythm, mirrored from src/ui/metrics.js. These two
@@ -53,6 +53,8 @@ pub struct Panel {
     pub webview: Webview<Wry>,
     /// x position when the canvas scroll offset is zero.
     pub home_x: f64,
+    /// y position, which is `PANEL_TOP` unless the row is centred.
+    pub home_y: f64,
     pub scale: f64,
     /// On-screen size, which is the declared size times the scale.
     pub width: f64,
@@ -102,7 +104,9 @@ pub struct Canvas {
     /// Whether the panels are armed to pick an element and describe a problem.
     pub picking: bool,
     /// Every panel as tall as the canvas, instead of at its declared height.
-    pub full_height: bool,
+    pub vertical_align: VerticalAlign,
+    /// How far the whole row is zoomed out, 0 to 1. See `model::row_scale`.
+    pub row_zoom: f64,
     /// True while a sheet is open. Panels are hidden so the chrome can draw
     /// over the canvas; child webviews always composite above it.
     pub panels_hidden: bool,
@@ -126,7 +130,8 @@ impl Default for Canvas {
             sync_on: true,
             follow: Follow::default(),
             picking: false,
-            full_height: false,
+            vertical_align: VerticalAlign::Top,
+            row_zoom: 0.0,
             panels_hidden: false,
             inspecting: None,
         }
@@ -152,6 +157,7 @@ pub struct PanelInfo {
     pub height: f64,
     pub scale: f64,
     pub home_x: f64,
+    pub home_y: f64,
     pub on_screen_width: f64,
     pub on_screen_height: f64,
     pub state: PanelState,
@@ -190,7 +196,9 @@ pub struct CanvasInfo {
     pub scroll_sync: bool,
     pub follow_links: bool,
     pub picking: bool,
-    pub full_height: bool,
+    pub vertical_align: VerticalAlign,
+    /// How far the whole row is zoomed out, 0 to 1. See `model::row_scale`.
+    pub row_zoom: f64,
     /// Which panel is being inspected, so the chrome can say so and offer a
     /// way out of the mode.
     pub inspecting: Option<String>,
@@ -201,6 +209,13 @@ pub struct CanvasInfo {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placement {
     pub home_x: f64,
+    /// Where the top of this panel goes.
+    ///
+    /// Per panel rather than one constant for the row, because centring a row
+    /// of panels with different heights puts each of them somewhere different.
+    /// Everything used to sit at `PANEL_TOP`, and that is still what `Top`
+    /// gives.
+    pub home_y: f64,
     pub scale: f64,
     pub width: f64,
     pub height: f64,
@@ -217,8 +232,13 @@ pub fn layout(
     available_height: f64,
     zoom_to_fit: bool,
     fit_mode: FitMode,
-    full_height: bool,
+    align: VerticalAlign,
+    row_zoom: f64,
 ) -> (Vec<Placement>, f64) {
+    // How far out the whole row is pulled, on top of whatever else is going
+    // on. 1.0 when the slider has never been moved, so every other path below
+    // behaves exactly as it did before this existed.
+    let row = crate::model::row_scale(row_zoom);
     // Every panel as tall as the canvas allows, at its real width.
     //
     // A viewport's declared height is a guess at a device, which is useful for
@@ -230,14 +250,20 @@ pub fn layout(
     // It overrides zoom to fit rather than combining with it. Fit exists to
     // make a panel short enough to see all of; this makes it as tall as the
     // window allows. Doing both at once has no meaning.
-    if full_height {
+    if align.stretches() {
         let mut x = OUTER_MARGIN;
         let mut out = Vec::with_capacity(viewports.len());
         for vp in viewports {
-            let width = vp.width.round().max(1.0);
+            // Width follows the zoom so more of the row fits; height stays at
+            // the window's, because that is what stretch means. The page's CSS
+            // height grows as the zoom shrinks, which is the same bargain the
+            // width makes and is why you see more page when you zoom out.
+            let width = (vp.width * row).round().max(1.0);
+            let scale = width / vp.width.max(1.0);
             out.push(Placement {
                 home_x: x,
-                scale: 1.0,
+                home_y: PANEL_TOP,
+                scale,
                 width,
                 height: available_height.round().max(1.0),
             });
@@ -275,12 +301,25 @@ pub fn layout(
         // whole point of this app is that it does. Exact width beats an exact
         // scale, and under uniform fit the scales can now differ by a fraction
         // of a percent as a result.
-        let width = (vp.width * nominal).round().max(1.0);
+        // Multiplied in with Fit rather than replacing it. Fit says "short
+        // enough to see all of" and this says "show me more of the row"; they
+        // are different questions and both answers can be wanted at once.
+        let width = (vp.width * nominal * row).round().max(1.0);
         let scale = width / vp.width.max(1.0);
         let height = (vp.height * scale).round();
 
+        // Centring is per panel, because a row whose panels are different
+        // heights has no single top edge to share. Never above `PANEL_TOP`:
+        // a panel taller than the space would otherwise slide up under the
+        // label strip and the toolbar, which composite below it.
+        let home_y = match align {
+            VerticalAlign::Center => PANEL_TOP + ((available_height - height) / 2.0).max(0.0),
+            _ => PANEL_TOP,
+        };
+
         out.push(Placement {
             home_x: x,
+            home_y,
             scale,
             width,
             height,
@@ -579,6 +618,16 @@ fn injected_script(panel_id: &str, endpoint: &Endpoint) -> String {
   // Everything it adds is marked data-bp-ui, is ignored by the picker itself,
   // and is torn out again when picking stops, so the page is left as it was.
   var picking = false, hovered = null, box = null, tag = null, form = null;
+  // Whether a session is holding a socket open. Pushed in from Rust rather
+  // than asked for, because the form has to know before it is typed into and
+  // there is nothing to ask. A note written with nobody listening goes to the
+  // clipboard, and finding that out afterwards is the whole complaint.
+  var listening = false;
+  window.__bpListening = function (on) {{
+    listening = !!on;
+    if (form && form.__bpSetListening) form.__bpSetListening(listening);
+    return listening;
+  }};
 
   function ui(kind) {{
     var el = document.createElement(kind);
@@ -719,6 +768,25 @@ fn injected_script(panel_id: &str, endpoint: &Endpoint) -> String {
     head.appendChild(what);
     head.appendChild(close);
 
+    // Said before the note is typed rather than after it is sent. A note that
+    // goes to the clipboard because nothing was listening is a note you find
+    // out about once it is too late to do anything but paste it somewhere.
+    var warn = ui("div");
+    warn.style.cssText =
+      "display:none;align-items:center;gap:8px;margin-bottom:6px;padding:6px 8px;border-radius:4px;" +
+      "background:#2a2118;border:1px solid #5c4a2a;color:#d8b36a;font:11px -apple-system,system-ui,sans-serif;";
+    var warnText = ui("div");
+    warnText.style.cssText = "flex:1;min-width:0;";
+    warnText.textContent = "Nothing is listening. This goes to your clipboard.";
+    var startBtn = ui("button");
+    startBtn.type = "button";
+    startBtn.textContent = "Start a session";
+    startBtn.style.cssText =
+      "flex:0 0 auto;padding:2px 8px;border-radius:4px;background:transparent;border:1px solid #5c4a2a;" +
+      "color:#d8b36a;font:11px inherit;cursor:pointer;";
+    warn.appendChild(warnText);
+    warn.appendChild(startBtn);
+
     var input = ui("textarea");
     input.setAttribute("placeholder", "What is wrong here?");
     input.style.cssText =
@@ -737,8 +805,21 @@ fn injected_script(panel_id: &str, endpoint: &Endpoint) -> String {
     foot.appendChild(send);
 
     form.appendChild(head);
+    form.appendChild(warn);
     form.appendChild(input);
     form.appendChild(foot);
+    form.__bpSetListening = function (on) {{
+      warn.style.display = on ? "none" : "flex";
+    }};
+    form.__bpSetListening(listening);
+
+    startBtn.addEventListener("click", function (ev) {{
+      ev.preventDefault();
+      ev.stopPropagation();
+      startBtn.disabled = true;
+      startBtn.textContent = "Starting...";
+      post("/p/start-agent", {{}});
+    }});
     document.body.appendChild(form);
     input.focus();
 
@@ -888,12 +969,18 @@ pub async fn spawn(
     // Every panel is born here and sent to the real page once it is the right
     // size. `normalize_url("")` is about:blank.
     let blank = crate::util::normalize_url("");
-    let (zoom_to_fit, fit_mode, full_height) = {
+    let (zoom_to_fit, fit_mode, align, row_zoom) = {
         let canvas = state.canvas.lock().unwrap();
-        (canvas.zoom_to_fit, canvas.fit_mode, canvas.full_height)
+        (canvas.zoom_to_fit, canvas.fit_mode, canvas.vertical_align, canvas.row_zoom)
     };
-    let (places, total) =
-        layout(&viewports, available_height_cached(app, state), zoom_to_fit, fit_mode, full_height);
+    let (places, total) = layout(
+        &viewports,
+        available_height_cached(app, state),
+        zoom_to_fit,
+        fit_mode,
+        align,
+        row_zoom,
+    );
 
     // The row is emptied first and then filled in one panel at a time, because
     // a page can finish loading and report in before the last panel has even
@@ -980,6 +1067,10 @@ pub async fn spawn(
                 if finished {
                     set_panel_state(&app, &state, &id, PanelState::Loaded);
                     rearm_picking(&state, &id);
+                    // A fresh document knows nothing about whether anything is
+                    // listening either, and the report form needs to say so
+                    // before it is typed into.
+                    rearm_listening(&state, &id, state.watching());
                     follow_navigation(&app, &state, &id, &url);
                 } else {
                     set_panel_state(&app, &state, &id, PanelState::Loading);
@@ -989,7 +1080,7 @@ pub async fn spawn(
 
         let webview = match window.add_child(
             builder,
-            LogicalPosition::new(place.home_x, PANEL_TOP),
+            LogicalPosition::new(place.home_x, place.home_y),
             LogicalSize::new(place.width, place.height),
         ) {
             Ok(webview) => webview,
@@ -1022,6 +1113,7 @@ pub async fn spawn(
             viewport: vp,
             webview,
             home_x: place.home_x,
+            home_y: place.home_y,
             scale: place.scale,
             width: place.width,
             height: place.height,
@@ -1047,13 +1139,21 @@ pub fn relayout(app: &AppHandle, state: &Shared) {
     let avail = available_height_cached(app, state);
     let mut canvas = state.canvas.lock().unwrap();
     let viewports: Vec<Viewport> = canvas.panels.iter().map(|p| p.viewport.clone()).collect();
-    let (places, total) = layout(&viewports, avail, canvas.zoom_to_fit, canvas.fit_mode, canvas.full_height);
+    let (places, total) = layout(
+        &viewports,
+        avail,
+        canvas.zoom_to_fit,
+        canvas.fit_mode,
+        canvas.vertical_align,
+        canvas.row_zoom,
+    );
     let scroll_x = canvas.scroll_x.min((total - 100.0).max(0.0));
     canvas.scroll_x = scroll_x;
     canvas.total_width = total;
 
     for (panel, place) in canvas.panels.iter_mut().zip(places) {
         panel.home_x = place.home_x;
+        panel.home_y = place.home_y;
         panel.scale = place.scale;
         panel.width = place.width;
         panel.height = place.height;
@@ -1066,7 +1166,7 @@ pub fn relayout(app: &AppHandle, state: &Shared) {
         let _ = panel.webview.set_zoom(place.scale);
         let _ = panel
             .webview
-            .set_position(LogicalPosition::new(place.home_x - scroll_x, PANEL_TOP));
+            .set_position(LogicalPosition::new(place.home_x - scroll_x, place.home_y));
         let _ = panel
             .webview
             .set_size(LogicalSize::new(place.width, place.height));
@@ -1087,7 +1187,7 @@ pub fn set_scroll(state: &Shared, offset: f64) {
     for panel in canvas.panels.iter() {
         let _ = panel
             .webview
-            .set_position(LogicalPosition::new(panel.home_x - offset, PANEL_TOP));
+            .set_position(LogicalPosition::new(panel.home_x - offset, panel.home_y));
     }
 }
 
@@ -1463,6 +1563,29 @@ pub fn set_picking(state: &Shared, on: bool) {
     }
 }
 
+/// Tell every panel whether a session is listening.
+///
+/// The report form has to say "this will go to your clipboard" before you type
+/// into it, and a panel cannot ask: it talks to Rust one way. So the answer is
+/// pushed whenever it changes, and again whenever a page reloads, because a
+/// fresh document knows nothing.
+pub fn push_listening(state: &Shared, on: bool) {
+    let canvas = state.canvas.lock().unwrap();
+    let js = format!("window.__bpListening && window.__bpListening({on})");
+    for panel in canvas.panels.iter() {
+        let _ = panel.webview.eval(&js);
+    }
+}
+
+/// The same, for one panel that has just loaded.
+pub fn rearm_listening(state: &Shared, id: &str, on: bool) {
+    let canvas = state.canvas.lock().unwrap();
+    if let Some(panel) = find(&canvas, id) {
+        let js = format!("window.__bpListening && window.__bpListening({on})");
+        let _ = panel.webview.eval(&js);
+    }
+}
+
 /// A page that has just loaded has a fresh document and knows nothing about the
 /// mode the app is in, so re-arm it.
 pub fn rearm_picking(state: &Shared, id: &str) {
@@ -1622,7 +1745,7 @@ pub fn restore_frames(state: &Shared) {
         let _ = panel.webview.set_zoom(panel.scale);
         let _ = panel
             .webview
-            .set_position(LogicalPosition::new(panel.home_x - scroll_x, PANEL_TOP));
+            .set_position(LogicalPosition::new(panel.home_x - scroll_x, panel.home_y));
         let _ = panel
             .webview
             .set_size(LogicalSize::new(panel.width, panel.height));
@@ -1975,6 +2098,7 @@ pub fn info(state: &Shared) -> CanvasInfo {
                 height: p.viewport.height,
                 scale: p.scale,
                 home_x: p.home_x,
+                home_y: p.home_y,
                 on_screen_width: p.width,
                 on_screen_height: p.height,
                 state: p.state.clone(),
@@ -1998,7 +2122,8 @@ pub fn info(state: &Shared) -> CanvasInfo {
         scroll_sync: canvas.sync_on,
         follow_links: canvas.follow.on,
         picking: canvas.picking,
-        full_height: canvas.full_height,
+        vertical_align: canvas.vertical_align,
+        row_zoom: canvas.row_zoom,
         inspecting: canvas.inspecting.clone(),
     }
 }
@@ -2466,7 +2591,7 @@ mod tests {
 
     #[test]
     fn unzoomed_panels_are_declared_size_and_start_at_the_margin() {
-        let (places, total) = layout(&vps(), 500.0, false, FitMode::Height, false);
+        let (places, total) = layout(&vps(), 500.0, false, FitMode::Height, VerticalAlign::Top, 0.0);
         assert_eq!(places[0].home_x, OUTER_MARGIN);
         assert_eq!(places[0].width, 640.0);
         assert_eq!(places[0].scale, 1.0);
@@ -2474,16 +2599,113 @@ mod tests {
         assert_eq!(total, OUTER_MARGIN * 2.0 + 640.0 + 768.0 + PANEL_GAP);
     }
 
+    /// A slider nobody has touched changes nothing at all. This is the
+    /// guarantee that makes the feature safe to add to a layout everything
+    /// else depends on.
+    #[test]
+    fn zero_zoom_is_exactly_actual_size() {
+        let (plain, _) = layout(&vps(), 900.0, false, FitMode::Height, VerticalAlign::Top, 0.0);
+        assert_eq!(plain[0].width, 640.0);
+        assert_eq!(plain[0].scale, 1.0);
+        assert_eq!(plain[1].width, 768.0);
+    }
+
+    /// The far end means what it says: ten viewports in the space one took.
+    #[test]
+    fn full_zoom_makes_the_row_ten_times_smaller() {
+        let (wide, plain_total) =
+            layout(&vps(), 900.0, false, FitMode::Height, VerticalAlign::Top, 0.0);
+        let (small, small_total) =
+            layout(&vps(), 900.0, false, FitMode::Height, VerticalAlign::Top, 1.0);
+        assert_eq!(small[0].width, 64.0, "a tenth of 640");
+        assert_eq!(small[1].width, 77.0, "a tenth of 768, rounded");
+        assert!(small_total < plain_total / 5.0, "the row is far narrower");
+        assert!(wide[0].width > small[0].width);
+    }
+
+    /// Zoom is perceived in ratios, so halfway along is the geometric middle
+    /// rather than the arithmetic one. Linear would spend most of the slider
+    /// between sizes that look the same.
+    #[test]
+    fn the_middle_of_the_slider_is_the_geometric_middle() {
+        let (half, _) = layout(&vps(), 900.0, false, FitMode::Height, VerticalAlign::Top, 0.5);
+        // 0.1^0.5 is about 0.3162.
+        assert_eq!(half[0].width, (640.0 * 0.31622776601683794_f64).round());
+    }
+
+    /// Zooming out and fitting to the height are different questions, and
+    /// asking both multiplies rather than one cancelling the other.
+    #[test]
+    fn zoom_and_fit_multiply() {
+        let (fit_only, _) =
+            layout(&vps(), 510.0, true, FitMode::Height, VerticalAlign::Top, 0.0);
+        let (both, _) = layout(&vps(), 510.0, true, FitMode::Height, VerticalAlign::Top, 1.0);
+        assert!((fit_only[0].scale - 0.6).abs() < 1e-9);
+        assert!(both[0].scale < fit_only[0].scale / 5.0, "zoom applied on top of fit");
+    }
+
+    /// Stretched panels get narrower with the zoom and still fill the window's
+    /// height, because filling the height is what stretch means.
+    #[test]
+    fn zooming_a_stretched_row_narrows_it_without_shortening_it() {
+        let (places, _) =
+            layout(&vps(), 700.0, false, FitMode::Height, VerticalAlign::Stretch, 1.0);
+        assert_eq!(places[0].width, 64.0);
+        assert_eq!(places[0].height, 700.0, "still the window's height");
+        assert_eq!(places[1].height, 700.0);
+    }
+
+    /// Top is what the app has always done: every panel hard against the same
+    /// line under the labels.
+    #[test]
+    fn top_puts_every_panel_at_the_same_line() {
+        let (places, _) = layout(&vps(), 900.0, false, FitMode::Height, VerticalAlign::Top, 0.0);
+        assert_eq!(places[0].home_y, PANEL_TOP);
+        assert_eq!(places[1].home_y, PANEL_TOP);
+    }
+
+    /// Centring is per panel, because the panels are different heights. A
+    /// single shared top would centre the tallest and leave the rest hanging.
+    #[test]
+    fn centring_balances_each_panel_in_the_space_it_has() {
+        // vps() is 640x850 and 768x1020. In 1200 of space that leaves 350 and
+        // 180 spare, so half of each goes above.
+        let (places, _) = layout(&vps(), 1200.0, false, FitMode::Height, VerticalAlign::Center, 0.0);
+        assert_eq!(places[0].home_y, PANEL_TOP + 175.0);
+        assert_eq!(places[1].home_y, PANEL_TOP + 90.0);
+    }
+
+    /// A panel taller than the space must not slide up under the label strip
+    /// and the toolbar, which are drawn below it and would be covered.
+    #[test]
+    fn centring_never_pushes_a_panel_above_the_labels() {
+        let (places, _) = layout(&vps(), 200.0, false, FitMode::Height, VerticalAlign::Center, 0.0);
+        assert_eq!(places[0].home_y, PANEL_TOP);
+        assert_eq!(places[1].home_y, PANEL_TOP);
+    }
+
+    /// Stretch takes the window's height and ignores the declared one, and has
+    /// nothing to centre.
+    #[test]
+    fn stretch_fills_the_space_and_starts_at_the_top() {
+        let (places, _) = layout(&vps(), 700.0, false, FitMode::Height, VerticalAlign::Stretch, 0.0);
+        assert_eq!(places[0].home_y, PANEL_TOP);
+        assert_eq!(places[0].height, 700.0);
+        assert_eq!(places[1].height, 700.0);
+        assert_eq!(places[0].width, 640.0, "the width is the breakpoint and is untouched");
+        assert_eq!(places[1].width, 768.0);
+    }
+
     #[test]
     fn fit_height_scales_each_panel_separately() {
-        let (places, _) = layout(&vps(), 510.0, true, FitMode::Height, false);
+        let (places, _) = layout(&vps(), 510.0, true, FitMode::Height, VerticalAlign::Top, 0.0);
         assert!((places[0].scale - 0.6).abs() < 1e-9);
         assert!((places[1].scale - 0.5).abs() < 1e-9);
     }
 
     #[test]
     fn uniform_fit_uses_the_smallest_scale_for_every_panel() {
-        let (places, _) = layout(&vps(), 510.0, true, FitMode::Uniform, false);
+        let (places, _) = layout(&vps(), 510.0, true, FitMode::Uniform, VerticalAlign::Top, 0.0);
         // Rounding the frame to whole pixels can move a scale by a fraction of
         // a percent; the promise is that they are the same factor, not that
         // they are bit-identical.
@@ -2497,7 +2719,7 @@ mod tests {
         // At any scale, that has to come back to the breakpoint itself, or a
         // min-width query fires one pixel late and the app is lying.
         for height in [377.0, 512.0, 640.0, 719.0, 863.0] {
-            let (places, _) = layout(&vps(), height, true, FitMode::Height, false);
+            let (places, _) = layout(&vps(), height, true, FitMode::Height, VerticalAlign::Top, 0.0);
             for (place, vp) in places.iter().zip(vps()) {
                 let rendered = place.width / place.scale;
                 assert!(
@@ -2512,7 +2734,7 @@ mod tests {
 
     #[test]
     fn zoom_never_magnifies_a_panel_past_its_true_size() {
-        let (places, _) = layout(&vps(), 4000.0, true, FitMode::Height, false);
+        let (places, _) = layout(&vps(), 4000.0, true, FitMode::Height, VerticalAlign::Top, 0.0);
         assert_eq!(places[0].scale, 1.0);
     }
 }

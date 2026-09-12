@@ -15,6 +15,7 @@ pub mod callback;
 pub mod canvas;
 pub mod commands;
 pub mod config;
+pub mod explain;
 pub mod generate;
 pub mod model;
 pub mod project;
@@ -22,7 +23,9 @@ pub mod project_file;
 pub mod references;
 pub mod scanner;
 pub mod shots;
+pub mod skills;
 pub mod state;
+pub mod terminal;
 pub mod tools;
 pub mod util;
 pub mod verify;
@@ -152,6 +155,12 @@ pub fn run() {
                 canvas.sync_on = loaded.scroll_sync;
                 canvas.follow.on = loaded.follow_links;
                 canvas.fit_mode = loaded.fit_mode;
+                // These two were saved and never read back, so the row opened
+                // at the top at actual size however it was left. Every other
+                // line here exists for the same reason: the config is the
+                // memory, and the canvas is what draws from it.
+                canvas.vertical_align = loaded.vertical_align;
+                canvas.row_zoom = loaded.row_zoom;
             }
             *shared.config.lock().unwrap() = loaded;
 
@@ -395,7 +404,8 @@ pub fn run() {
             commands::reload_panel,
             commands::set_scroll,
             commands::set_zoom_to_fit,
-            commands::set_full_height,
+            commands::set_vertical_align,
+            commands::set_row_zoom,
             commands::set_scroll_sync,
             commands::set_follow_links,
             commands::set_picking,
@@ -405,6 +415,11 @@ pub fn run() {
             commands::inspect_chrome,
             commands::open_panel_in_browser,
             commands::list_browsers,
+            commands::list_terminals,
+            commands::start_agent_session,
+            commands::focus_terminal,
+            commands::list_skills,
+            commands::run_skill,
             commands::choose_shot_dir,
             commands::reset_shot_dir,
             commands::set_sheet_open,

@@ -78,10 +78,51 @@ export const icons = {
     '<path d="M11.5 9v2.5a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2H7"/>'
   ),
 
-  // arrow.up.and.down.to.line, for panels filling the window's height.
+  // Where the panels sit vertically, as three icons in one group. Each one
+  // draws the same two boxes against the same line, so the difference between
+  // them is only what the group is about. The line is solid where the panels
+  // are pinned to it and dashed where they are not.
+
+  // align.vertical.top: two boxes of different heights, hanging from the top.
+  alignTop: svg(
+    '<path d="M2 2.5h12"/>' +
+    '<rect x="3" y="5" width="4" height="8.5" rx="1"/>' +
+    '<rect x="9" y="5" width="4" height="5.5" rx="1"/>'
+  ),
+
+  // align.vertical.center: the same boxes, balanced about the middle.
+  alignCenter: svg(
+    '<path d="M2 8h1.4M12.6 8H14"/>' +
+    '<rect x="3.6" y="2.6" width="4" height="10.8" rx="1"/>' +
+    '<rect x="9" y="5.2" width="4" height="5.6" rx="1"/>'
+  ),
+
+  // arrow.up.and.down.to.line: both boxes pulled to fill the space.
+  alignStretch: svg(
+    '<path d="M2 2.5h12"/><path d="M2 13.5h12"/>' +
+    '<rect x="3.6" y="5" width="4" height="6" rx="1"/>' +
+    '<rect x="9" y="5" width="4" height="6" rx="1"/>' +
+    '<path d="M5.6 5V3.8M5.6 11v1.2M11 5V3.8M11 11v1.2"/>'
+  ),
+
+  // arrow.up.and.down.to.line, kept for the settings row that talks about
+  // panel heights rather than about where a panel sits.
   fullHeight: svg(
     '<path d="M2.5 2.5h11"/><path d="M2.5 13.5h11"/><path d="M8 4.5v7"/>' +
     '<path d="M6 6.5L8 4.5l2 2"/><path d="M6 9.5l2 2 2-2"/>'
+  ),
+
+  // arrow.counterclockwise into a line: back to where it started. Distinct
+  // from `reload`, which is a full circle and means fetch the page again.
+  resetZoom: svg(
+    '<path d="M3.2 8a4.8 4.8 0 1 0 1.5-3.5"/>' +
+    '<path d="M2.6 3.2v2.6h2.6"/>'
+  ),
+
+  // wand.and.stars, for asking a session to run a packaged workflow.
+  skill: svg(
+    '<path d="M2.6 13.4L9.4 6.6"/><path d="M10.4 3.2l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z"/>' +
+    '<path d="M13.4 8.2l.4.9.9.4-.9.4-.4.9-.4-.9-.9-.4.9-.4z"/>'
   ),
 
   // folder, for the project root.

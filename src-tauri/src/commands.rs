@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::browser;
+use crate::terminal;
 use crate::canvas::{self, CanvasInfo};
 use crate::model::{AppConfig, FitMode, HeightStrategy, Profile, Viewport};
 use crate::state::Shared;
@@ -39,6 +40,13 @@ pub struct Snapshot {
     /// badge it counted itself would start again at nothing while the queue
     /// still held work.
     pub report_count: usize,
+    /// The last thing a session said back. Same reason again: a reply the
+    /// chrome heard as an event before it reloaded is a reply it has lost.
+    pub last_reply: Option<crate::state::Reply>,
+    /// The last few notes written in this sitting, newest first, with what
+    /// became of each. Drawn as the status bar's list and as the marks on the
+    /// panel labels.
+    pub recent_notes: Vec<crate::state::NoteRecord>,
 }
 
 #[tauri::command]
@@ -52,6 +60,8 @@ pub fn app_state(app: AppHandle, state: State<'_, Shared>) -> Snapshot {
     let bridge = bridge::status(&app, &state);
     let report_owner = state.report_owner();
     let report_count = state.report_count();
+    let last_reply = state.last_reply();
+    let recent_notes = state.recent_notes();
     let report_prompt = config
         .report_prompt
         .clone()
@@ -67,6 +77,8 @@ pub fn app_state(app: AppHandle, state: State<'_, Shared>) -> Snapshot {
         bridge,
         report_owner,
         report_count,
+        last_reply,
+        recent_notes,
         shot_dir,
         report_prompt,
     }
@@ -190,14 +202,40 @@ pub fn set_zoom_to_fit(app: AppHandle, state: State<'_, Shared>, on: bool) {
     canvas::relayout(&app, &state);
 }
 
-/// Every panel as tall as the canvas allows. Overrides zoom to fit, which is
-/// the opposite instruction.
+/// Where the panels sit vertically: top, centred, or stretched to the window.
+///
+/// One setting rather than three toggles, because the three are alternatives.
+/// Stretch overrides zoom to fit, which is the opposite instruction: fit exists
+/// to make a panel short enough to see all of, stretch makes it as tall as the
+/// window allows, and doing both has no meaning.
 #[tauri::command]
-pub fn set_full_height(app: AppHandle, state: State<'_, Shared>, on: bool) {
-    state.canvas.lock().unwrap().full_height = on;
+pub fn set_vertical_align(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    align: crate::model::VerticalAlign,
+) {
+    state.canvas.lock().unwrap().vertical_align = align;
     {
         let mut config = state.config.lock().unwrap();
-        config.full_height = on;
+        config.vertical_align = align;
+        let _ = config::save(&app, &config);
+    }
+    canvas::relayout(&app, &state);
+}
+
+/// How far the whole row is zoomed out, 0 to 1.
+///
+/// The counterpart to Fit rather than a replacement for it. Fit answers "make
+/// a panel short enough to see all of"; this answers "show me more of the row
+/// at once", and both can be wanted together. Zero is actual size, and a
+/// slider that has never been touched changes nothing.
+#[tauri::command]
+pub fn set_row_zoom(app: AppHandle, state: State<'_, Shared>, zoom: f64) {
+    let zoom = zoom.clamp(0.0, 1.0);
+    state.canvas.lock().unwrap().row_zoom = zoom;
+    {
+        let mut config = state.config.lock().unwrap();
+        config.row_zoom = zoom;
         let _ = config::save(&app, &config);
     }
     canvas::relayout(&app, &state);
@@ -344,6 +382,149 @@ pub fn list_browsers(state: State<'_, Shared>) -> Value {
     })
 }
 
+/// Which terminal the session button should use.
+fn chosen_terminal_for(state: &Shared) -> Option<terminal::Terminal> {
+    let chosen = state.config.lock().unwrap().terminal.clone();
+    chosen
+        .as_deref()
+        .and_then(terminal::Terminal::from_id)
+        .filter(|t| t.installed())
+        .or_else(|| terminal::installed().first().copied())
+}
+
+/// Open a terminal at the project and start the agent in it.
+///
+/// The counterpart to the row saying "Nothing is listening". Connecting a
+/// session was a slash command you had to remember in a folder you had to
+/// navigate to, and a note written before you remembered went to the clipboard
+/// instead. This does both, and the session claims the notes by connecting, so
+/// the arrow in the toolbar lights up a few seconds later without anything
+/// else being pressed.
+///
+/// Focus is taken deliberately. You pressed a button that starts a session you
+/// are about to type in, which is the same exception "Open in browser" makes.
+#[tauri::command]
+pub fn start_agent_session(
+    app: AppHandle,
+    state: State<'_, Shared>,
+) -> Result<String, String> {
+    start_agent(&app, &state)
+}
+
+/// The same launch, for callers that are not a Tauri command.
+///
+/// The report form inside a panel offers this when it has told you nothing is
+/// listening, and a panel talks to Rust over the callback server rather than
+/// over the command bridge. Failures go to the notice band, because there is
+/// nowhere in a panel to put an error.
+pub fn start_agent_session_now(app: &AppHandle, state: &Shared) {
+    let said = match start_agent(app, state) {
+        Ok(name) => format!("Starting a session in {name}. It claims your notes when it connects."),
+        Err(why) => why,
+    };
+    let _ = app.emit("canvas:notice", said);
+}
+
+fn start_agent(app: &AppHandle, state: &Shared) -> Result<String, String> {
+    let chosen = chosen_terminal_for(state)
+        .ok_or("no terminal found. iTerm, Terminal, Ghostty, Warp, WezTerm, kitty and Alacritty are the ones this looks for")?;
+
+    let command = state
+        .config
+        .lock()
+        .unwrap()
+        .agent_command
+        .clone()
+        .unwrap_or_else(|| terminal::DEFAULT_COMMAND.to_string());
+
+    // The project root when there is one. Without a project the command still
+    // runs, in whatever folder the terminal opens in, because a session with
+    // no project can still take notes about a URL.
+    let project = state.project.lock().unwrap().as_ref().map(|p| p.root.clone());
+
+    let scripts = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("agent-scripts");
+
+    terminal::start(chosen, project.as_deref(), &command, &scripts)
+}
+
+/// Bring the agent's terminal forward.
+///
+/// The other half of a reply. A session says something back, the status bar
+/// shows the first line of it, and this is how you go and read the rest. It
+/// activates the terminal that is already running rather than starting a
+/// second one, so you land in the session that spoke.
+#[tauri::command]
+pub fn focus_terminal(state: State<'_, Shared>) -> Result<String, String> {
+    let chosen = chosen_terminal_for(&state).ok_or("no terminal found")?;
+    terminal::focus(chosen)
+}
+
+/// Every skill installed, for the menu.
+///
+/// Read from disk each time rather than cached. Somebody writing a skill wants
+/// it in the menu without restarting the app, and reading a dozen small files
+/// is cheaper than the menu being wrong.
+#[tauri::command]
+pub fn list_skills(state: State<'_, Shared>) -> Vec<crate::skills::Skill> {
+    let project = state.project.lock().unwrap().as_ref().map(|p| p.root.clone());
+    crate::skills::installed(project.as_deref())
+}
+
+/// Ask the listening session to run a skill.
+///
+/// The app cannot run a skill itself. A skill is instructions for an agent and
+/// the agent is in a terminal the app does not own, so this asks and says
+/// whether anybody heard. Nothing is queued: an instruction nobody was there
+/// for should expire rather than arrive an hour later.
+#[tauri::command]
+pub fn run_skill(
+    state: State<'_, Shared>,
+    skill: String,
+    context: Option<String>,
+) -> Result<String, String> {
+    let skill = skill.trim();
+    if skill.is_empty() {
+        return Err("no skill was chosen".into());
+    }
+    let heard = state.say_to_sessions(crate::skills::invocation(skill, context.as_deref()));
+    if heard == 0 {
+        return Err(
+            "nothing is listening, so there is nobody to run it. Start a session first.".into(),
+        );
+    }
+    let owner = state
+        .report_owner()
+        .map(|owner| owner.name)
+        .unwrap_or_else(|| "the session".into());
+    Ok(owner)
+}
+
+/// Which terminals are installed, and what the button will run, for settings.
+#[tauri::command]
+pub fn list_terminals(state: State<'_, Shared>) -> Value {
+    let installed = terminal::installed();
+    let active = chosen_terminal_for(&state);
+    let command = state.config.lock().unwrap().agent_command.clone();
+
+    serde_json::json!({
+        "terminals": installed
+            .iter()
+            .map(|t| serde_json::json!({
+                "id": t.id(),
+                "name": t.label(),
+                "needsPermission": t.needs_permission(),
+            }))
+            .collect::<Vec<_>>(),
+        "active": active.map(|t| t.id()),
+        "command": command.unwrap_or_else(|| terminal::DEFAULT_COMMAND.to_string()),
+        "defaultCommand": terminal::DEFAULT_COMMAND,
+    })
+}
+
 /// The Web Inspector on Break/Points' own chrome, for when the app itself is
 /// what is misbehaving. Without this the only console in the app is one nobody
 /// can read, which is how a permissions failure once looked like a dead UI.
@@ -445,6 +626,11 @@ pub struct Preferences {
     /// Browser id for "Open in browser". Only this preference does not touch
     /// the layout, so it is the one that does not need a relayout after.
     pub browser: Option<String>,
+    /// Terminal id for the session button, and the command it runs. Neither
+    /// touches the layout either.
+    pub terminal: Option<String>,
+    /// An empty string means "back to the default command".
+    pub agent_command: Option<String>,
     /// The standing instruction sent with every reported problem. An empty
     /// string means "back to the default", which is how the Reset button in
     /// the settings sheet works without needing a command of its own.
@@ -470,6 +656,16 @@ pub fn set_preferences(app: AppHandle, state: State<'_, Shared>, prefs: Preferen
         }
         if let Some(value) = prefs.browser {
             config.browser = Some(value);
+        }
+        if let Some(value) = prefs.terminal {
+            config.terminal = Some(value);
+        }
+        if let Some(value) = prefs.agent_command {
+            config.agent_command = if value.trim().is_empty() {
+                None
+            } else {
+                Some(value.trim().to_string())
+            };
         }
         if let Some(value) = prefs.recheck_on_change {
             config.recheck_on_change = value;

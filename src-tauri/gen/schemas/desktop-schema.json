@@ -411,6 +411,12 @@
           "markdownDescription": "Enables the eval_js command without any pre-configured scope."
         },
         {
+          "description": "Enables the focus_terminal command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-focus-terminal",
+          "markdownDescription": "Enables the focus_terminal command without any pre-configured scope."
+        },
+        {
           "description": "Enables the inspect_chrome command without any pre-configured scope.",
           "type": "string",
           "const": "allow-inspect-chrome",
@@ -433,6 +439,18 @@
           "type": "string",
           "const": "allow-list-profiles",
           "markdownDescription": "Enables the list_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_skills command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-skills",
+          "markdownDescription": "Enables the list_skills command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_terminals command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-terminals",
+          "markdownDescription": "Enables the list_terminals command without any pre-configured scope."
         },
         {
           "description": "Enables the navigate command without any pre-configured scope.",
@@ -501,6 +519,12 @@
           "markdownDescription": "Enables the reset_shot_dir command without any pre-configured scope."
         },
         {
+          "description": "Enables the run_skill command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-run-skill",
+          "markdownDescription": "Enables the run_skill command without any pre-configured scope."
+        },
+        {
           "description": "Enables the save_profile command without any pre-configured scope.",
           "type": "string",
           "const": "allow-save-profile",
@@ -537,12 +561,6 @@
           "markdownDescription": "Enables the set_follow_links command without any pre-configured scope."
         },
         {
-          "description": "Enables the set_full_height command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-set-full-height",
-          "markdownDescription": "Enables the set_full_height command without any pre-configured scope."
-        },
-        {
           "description": "Enables the set_picking command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-picking",
@@ -553,6 +571,12 @@
           "type": "string",
           "const": "allow-set-preferences",
           "markdownDescription": "Enables the set_preferences command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_row_zoom command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-row-zoom",
+          "markdownDescription": "Enables the set_row_zoom command without any pre-configured scope."
         },
         {
           "description": "Enables the set_scroll command without any pre-configured scope.",
@@ -573,10 +597,22 @@
           "markdownDescription": "Enables the set_sheet_open command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_vertical_align command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-vertical-align",
+          "markdownDescription": "Enables the set_vertical_align command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_zoom_to_fit command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-zoom-to-fit",
           "markdownDescription": "Enables the set_zoom_to_fit command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the start_agent_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-agent-session",
+          "markdownDescription": "Enables the start_agent_session command without any pre-configured scope."
         },
         {
           "description": "Enables the stop_inspecting command without any pre-configured scope.",
@@ -663,6 +699,12 @@
           "markdownDescription": "Denies the eval_js command without any pre-configured scope."
         },
         {
+          "description": "Denies the focus_terminal command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-focus-terminal",
+          "markdownDescription": "Denies the focus_terminal command without any pre-configured scope."
+        },
+        {
           "description": "Denies the inspect_chrome command without any pre-configured scope.",
           "type": "string",
           "const": "deny-inspect-chrome",
@@ -685,6 +727,18 @@
           "type": "string",
           "const": "deny-list-profiles",
           "markdownDescription": "Denies the list_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_skills command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-skills",
+          "markdownDescription": "Denies the list_skills command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_terminals command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-terminals",
+          "markdownDescription": "Denies the list_terminals command without any pre-configured scope."
         },
         {
           "description": "Denies the navigate command without any pre-configured scope.",
@@ -753,6 +807,12 @@
           "markdownDescription": "Denies the reset_shot_dir command without any pre-configured scope."
         },
         {
+          "description": "Denies the run_skill command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-run-skill",
+          "markdownDescription": "Denies the run_skill command without any pre-configured scope."
+        },
+        {
           "description": "Denies the save_profile command without any pre-configured scope.",
           "type": "string",
           "const": "deny-save-profile",
@@ -789,12 +849,6 @@
           "markdownDescription": "Denies the set_follow_links command without any pre-configured scope."
         },
         {
-          "description": "Denies the set_full_height command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-set-full-height",
-          "markdownDescription": "Denies the set_full_height command without any pre-configured scope."
-        },
-        {
           "description": "Denies the set_picking command without any pre-configured scope.",
           "type": "string",
           "const": "deny-set-picking",
@@ -805,6 +859,12 @@
           "type": "string",
           "const": "deny-set-preferences",
           "markdownDescription": "Denies the set_preferences command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_row_zoom command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-row-zoom",
+          "markdownDescription": "Denies the set_row_zoom command without any pre-configured scope."
         },
         {
           "description": "Denies the set_scroll command without any pre-configured scope.",
@@ -825,10 +885,22 @@
           "markdownDescription": "Denies the set_sheet_open command without any pre-configured scope."
         },
         {
+          "description": "Denies the set_vertical_align command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-vertical-align",
+          "markdownDescription": "Denies the set_vertical_align command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_zoom_to_fit command without any pre-configured scope.",
           "type": "string",
           "const": "deny-set-zoom-to-fit",
           "markdownDescription": "Denies the set_zoom_to_fit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_agent_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-agent-session",
+          "markdownDescription": "Denies the start_agent_session command without any pre-configured scope."
         },
         {
           "description": "Denies the stop_inspecting command without any pre-configured scope.",

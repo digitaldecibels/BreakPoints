@@ -44,6 +44,11 @@ pub struct Status {
     /// True while an agent request is in flight, which is what makes the
     /// toolbar dot pulse rather than sit still.
     pub active: bool,
+    /// Which tool is running, while one is. The dot says something is
+    /// happening; this says what, which is the difference between "the app is
+    /// busy" and "the session is taking a screenshot of every width".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_tool: Option<String>,
     /// True while a session is holding a socket or a long poll open, waiting
     /// for the next note. Steady rather than pulsing, because it is a state
     /// and not an event, and it is the difference between a note being
@@ -59,6 +64,7 @@ pub fn status(_app: &AppHandle, state: &Shared) -> Status {
         mcp_url: format!("http://127.0.0.1:{PORT}/mcp"),
         token: config.bridge_token.clone(),
         active: *state.bridge_active.lock().unwrap(),
+        active_tool: state.active_tool.lock().unwrap().clone(),
         watching: state.watching(),
     }
 }
@@ -244,6 +250,26 @@ where
             tools::emit_report_count(app, state);
             return false;
         }
+        // This note is now on a socket somebody is holding open, which is the
+        // strongest thing the app can honestly say about it: it left, and it
+        // left to a session that was there to take it. The status bar draws
+        // its tick from this rather than from the note being written, so a
+        // tick never appears for a note that only joined the queue.
+        // The session's own name, not its id. The id is a session identifier
+        // nobody recognises, and the status bar reads "sent to <name>".
+        let to = state
+            .report_owner()
+            .filter(|owner| Some(owner.id.as_str()) == client)
+            .map(|owner| owner.name);
+        state.note_delivered(&report.id, to.as_deref());
+        let _ = app.emit(
+            "report:delivered",
+            json!({
+                "id": report.id,
+                "width": report.width,
+                "to": to,
+            }),
+        );
     }
     // A send that returned is delivery, so there is nothing left to hold. The
     // in-flight list exists for a reply that might never arrive, which is a
@@ -252,6 +278,7 @@ where
         state.settle_in_flight(Some(client));
     }
     tools::emit_report_count(app, state);
+    tools::emit_recent_notes(app, state);
     true
 }
 
@@ -280,6 +307,9 @@ async fn watch_reports(
     // Subscribe before the first drain, or a note written in between is
     // delivered to nobody.
     let mut rx = state.subscribe_reports();
+    // Anything the app wants to say that is not a note, which today is a skill
+    // somebody picked from the menu.
+    let mut prompts = state.subscribe_prompts();
     state.watcher_joined();
     let _ = app.emit("bridge:status", status(&app, &state));
     tools::emit_report_count(&app, &state);
@@ -304,6 +334,16 @@ async fn watch_reports(
     while alive {
         tokio::select! {
             _ = &mut has_closed => break,
+            // Said to the session as it is chosen, and dropped if the socket
+            // has gone. Lagging means the session is far behind on
+            // instructions, and an old instruction is worse than none.
+            said = prompts.recv() => match said {
+                Ok(text) => {
+                    alive = sink.send(Message::Text(text)).await.is_ok();
+                }
+                Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => break,
+            },
             received = rx.recv() => match received {
                 // The broadcast is only a wake-up. The queue is what is
                 // actually delivered, so two notes in quick succession are one
@@ -382,7 +422,7 @@ fn console_since(state: &Shared, seen: &mut HashMap<String, usize>) -> Option<St
 /// is not doing anything. A two second poll made it blink thirty times a
 /// minute for as long as a session was open, which trained the eye to ignore
 /// the one signal that says the bridge is in use.
-const QUIET_TOOLS: &[&str] = &["take_reports", "await_reports", "claim_reports"];
+const QUIET_TOOLS: &[&str] = &["take_reports", "await_reports", "claim_reports", "reply_to_report"];
 
 /// MCP over HTTP, which is JSON-RPC 2.0 with three methods that matter.
 async fn mcp(
@@ -450,6 +490,7 @@ async fn dispatch(ctx: &Ctx, tool: &str, args: &Value) -> Result<Value, String> 
     let pulse = !QUIET_TOOLS.contains(&tool);
     if pulse {
         *ctx.state.bridge_active.lock().unwrap() = true;
+        *ctx.state.active_tool.lock().unwrap() = Some(tool.to_string());
         let _ = ctx.app.emit("bridge:status", status(&ctx.app, &ctx.state));
     }
 
@@ -457,6 +498,15 @@ async fn dispatch(ctx: &Ctx, tool: &str, args: &Value) -> Result<Value, String> 
 
     if pulse {
         *ctx.state.bridge_active.lock().unwrap() = false;
+        // Cleared only if this call is still the one that set it. Two tools
+        // can overlap, and the first to finish should not blank a name the
+        // second is still using.
+        {
+            let mut running = ctx.state.active_tool.lock().unwrap();
+            if running.as_deref() == Some(tool) {
+                *running = None;
+            }
+        }
         let _ = ctx.app.emit("bridge:status", status(&ctx.app, &ctx.state));
     }
     result
@@ -527,6 +577,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "take_reports",
     "await_reports",
     "claim_reports",
+    "reply_to_report",
+    "explain_report",
     "eval_chrome",
 ];
 
@@ -671,6 +723,60 @@ pub async fn call_tool(
             let _ = app.emit("reports:owner", &session);
             tools::emit_report_count(app, state);
             Ok(json!(session))
+        }
+
+        // The return leg. Everything else about notes goes one way: somebody
+        // describes a problem and it leaves. This is how a session says
+        // something back, and the status bar shows it with a way to bring that
+        // terminal forward and read the rest.
+        "reply_to_report" => {
+            let text = string_arg(args, "text")?;
+            let text = text.trim();
+            if text.is_empty() {
+                return Err("text is what you want to say back and cannot be empty".into());
+            }
+            // Truncated here rather than in the chrome, so a session that
+            // pastes a whole file does not put it in the app's memory.
+            let text: String = text.chars().take(500).collect();
+
+            // Named by the session if it says who it is, otherwise by whoever
+            // currently owns the notes, because that is who this almost
+            // certainly is.
+            let from = args
+                .get("client")
+                .and_then(Value::as_str)
+                .and_then(|id| {
+                    state
+                        .report_owner()
+                        .filter(|owner| owner.id == id)
+                        .map(|owner| owner.name)
+                })
+                .or_else(|| state.report_owner().map(|owner| owner.name))
+                .unwrap_or_else(|| "a session".to_string());
+
+            let reply = state.set_last_reply(crate::state::Reply {
+                report_id: args
+                    .get("reportId")
+                    .or_else(|| args.get("report_id"))
+                    .and_then(Value::as_str)
+                    .map(|s| s.to_string()),
+                from,
+                text,
+                at: crate::util::now_ms(),
+            });
+            let _ = app.emit("report:reply", &reply);
+            tools::emit_recent_notes(app, state);
+            Ok(json!(reply))
+        }
+
+        // Everything about one note, in one call. This is deliberately the
+        // first thing a session should do with a note: it replaces the five
+        // calls that used to come next, and it takes the measurement in every
+        // panel rather than only the one complained about.
+        "explain_report" => {
+            let id = string_arg(args, "id")?;
+            let explained = crate::explain::explain(app, state, &id).await?;
+            Ok(serde_json::to_value(explained).map_err(|e| e.to_string())?)
         }
 
         "get_console" => {
@@ -1052,6 +1158,40 @@ pub fn tool_definitions() -> Vec<Value> {
                     }
                 }),
                 &["id"],
+            ),
+        }),
+        json!({
+            "name": "explain_report",
+            "description": "Everything known about one reported problem, in one call: the element's markup, its box and layout properties measured in EVERY open panel rather than only the one complained about, which of those properties differ between widths, the CSS rules that match it with the media query each sits inside and whether that query is currently true, and any console errors at that width. Call this first whenever you are handed a note; it replaces separate calls to list_panels, eval_js, get_dom and get_console. The `differs` field is the short answer to what changes between widths. It states facts and makes no judgement: a width that differs is often exactly what the design asks for.",
+            "inputSchema": schema(
+                json!({
+                    "id": {
+                        "type": "string",
+                        "description": "The note's id. Every note carries one, and take_reports and the socket both include it.",
+                    }
+                }),
+                &["id"],
+            ),
+        }),
+        json!({
+            "name": "reply_to_report",
+            "description": "Say something back about a note, so the person who wrote it sees an answer in the app instead of waiting in silence. One or two sentences: what you found, what you changed, or what you need from them. It appears in the status bar along the bottom of the window with a button that brings this terminal forward. Call it when you have read a note and again when you have acted on it. Anything over 500 characters is cut.",
+            "inputSchema": schema(
+                json!({
+                    "text": {
+                        "type": "string",
+                        "description": "What to say back. One or two sentences, written for somebody looking at the screen rather than at the code.",
+                    },
+                    "reportId": {
+                        "type": "string",
+                        "description": "The note being answered, if this answers one. Each note carries an id.",
+                    },
+                    "client": {
+                        "type": "string",
+                        "description": "The same session id you claimed with, so the reply is attributed to the right session.",
+                    }
+                }),
+                &["text"],
             ),
         }),
         json!({

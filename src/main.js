@@ -8,8 +8,15 @@ import { api } from "./ui/api.js";
 import { registerIconDirective } from "./ui/icons.js";
 import { registerStore } from "./ui/store.js";
 import { panelMeta, panelState, panelStatusCode } from "./ui/format.js";
+import { hint, keys, match as matchShortcut, SHORTCUTS } from "./ui/shortcuts.js";
 
 registerIconDirective(Alpine);
+
+// `$hint('fit')` in markup writes "Scale the row to fit  (\u2318F)", from the
+// same table the key handler reads. A tooltip and its shortcut cannot disagree
+// because there is only one of them.
+Alpine.magic("hint", () => hint);
+Alpine.magic("keys", () => keys);
 registerStore(Alpine);
 
 Alpine.data("toolbar", () => ({
@@ -165,6 +172,16 @@ Alpine.data("settingsSheet", () => ({
   // the moment of choosing.
   browsers: [],
   browser: null,
+  // Same thesis for terminals: only the ones actually on the machine.
+  terminals: [],
+  terminal: null,
+  // What the session button runs. Editable so anything that speaks to the
+  // bridge can be started instead of Claude Code.
+  agentCommand: "",
+  defaultAgentCommand: "",
+  // Read from the same table the key handler uses, so the list in Settings
+  // cannot document a key that no longer does anything.
+  shortcuts: SHORTCUTS,
   reportPrompt: "",
   promptSaved: false,
 
@@ -223,6 +240,23 @@ Alpine.data("settingsSheet", () => ({
       this.browsers = found.browsers ?? [];
       this.browser = found.active ?? null;
     });
+
+    api.listTerminals().then((found) => {
+      this.terminals = found.terminals ?? [];
+      this.terminal = found.active ?? null;
+      this.agentCommand = found.command ?? "";
+      this.defaultAgentCommand = found.defaultCommand ?? "";
+      Alpine.store("bp").terminals = found;
+    });
+  },
+
+  /** Whether macOS will ask to let the app control the chosen terminal.
+   *
+   *  Only iTerm does, because AppleScript is the only way it takes a command.
+   *  Worth saying in advance: the prompt appears over whatever you are doing
+   *  and, on an unsigned build, has to be granted again after every rebuild. */
+  get terminalNeedsPermission() {
+    return this.terminals.find((t) => t.id === this.terminal)?.needsPermission ?? false;
   },
 
   /** Whether the chosen browser can be told what width to open at. */
@@ -320,7 +354,12 @@ Alpine.data("settingsSheet", () => ({
       fitMode: this.uniformFit ? "uniform" : "height",
       recheckOnChange: this.recheckOnChange,
       browser: this.browser,
+      terminal: this.terminal,
+      agentCommand: this.agentCommand,
     });
+    // The status bar's button reads this, so it has to be told too or it goes
+    // on running the command that was replaced.
+    Alpine.store("bp").loadTerminals();
   },
 
   async save() {
@@ -348,33 +387,81 @@ window.Alpine = Alpine;
 Alpine.start();
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Focus the URL bar and reload every panel, the two shortcuts a browser
-  // trains you to expect.
+  // Every shortcut, dispatched from the one table that also writes the
+  // tooltips. A shortcut that moves moves in both places or in neither.
+  //
+  // Command R is Report rather than reload. Marking a problem is what this app
+  // is for and what you reach for most, and reload moves to Command Shift R,
+  // which is where a browser keeps its harder reload anyway.
   window.addEventListener("keydown", (event) => {
-    if (!event.metaKey) return;
-    if (event.key === "l") {
-      event.preventDefault();
-      document.getElementById("url")?.focus();
-      document.getElementById("url")?.select();
-    }
-    if (event.key === "r" && !event.shiftKey) {
-      event.preventDefault();
-      api.reloadAll();
-    }
-    // Report, without reaching for the toolbar. Inside a panel the same thing
-    // is a command-shift click on whatever is wrong, which needs no mode at
-    // all; this is for when the chrome has focus.
-    if (event.shiftKey && (event.key === "r" || event.key === "R")) {
-      event.preventDefault();
-      const store = Alpine.store("bp");
-      store.setPicking(!store.picking);
-    }
-    // Cmd+Alt+I on the chrome itself, the way a browser does it. Without this
-    // the app's own console is unreachable, which is how a permissions failure
-    // once read as a completely dead window.
-    if (event.altKey && (event.key === "i" || event.key === "\u02c6")) {
-      event.preventDefault();
-      Alpine.store("bp").inspectChrome();
+    const hit = matchShortcut(event);
+    if (!hit) return;
+    const store = Alpine.store("bp");
+
+    // A shortcut that types into a field has to lose to the field. Command R
+    // in the address bar should reload, not arm Report behind your cursor.
+    const typing =
+      event.target instanceof HTMLInputElement ||
+      event.target instanceof HTMLTextAreaElement;
+    if (typing && hit.id !== "focusUrl" && hit.id !== "reloadAll") return;
+
+    event.preventDefault();
+    switch (hit.id) {
+      case "focusUrl":
+        document.getElementById("url")?.focus();
+        document.getElementById("url")?.select();
+        break;
+      case "reloadAll":
+        api.reloadAll();
+        break;
+      case "toggleReport":
+        store.setPicking(!store.picking);
+        break;
+      case "runSkill":
+        store.toggleSkills();
+        break;
+      case "settings":
+        if (store.sheet === "settings") store.closeSheet();
+        else store.openSettings();
+        break;
+      case "accessibility":
+        store.runAccessibilityAudit();
+        break;
+      case "zoomOut":
+        store.setRowZoom(Math.min(1, store.rowZoom + 0.1));
+        break;
+      case "zoomIn":
+        store.setRowZoom(Math.max(0, store.rowZoom - 0.1));
+        break;
+      case "zoomReset":
+        store.setRowZoom(0);
+        break;
+      case "fit":
+        store.setFit(!store.fitEnabled);
+        break;
+      case "sync":
+        store.setSync(!store.syncEnabled);
+        break;
+      case "follow":
+        store.setFollow(!store.followEnabled);
+        break;
+      case "alignTop":
+        store.setVerticalAlign("top");
+        break;
+      case "alignCenter":
+        store.setVerticalAlign("center");
+        break;
+      case "alignStretch":
+        store.setVerticalAlign("stretch");
+        break;
+      case "copyNotes":
+        store.copyReports();
+        break;
+      case "inspectChrome":
+        store.inspectChrome();
+        break;
+      default:
+        break;
     }
   });
 
