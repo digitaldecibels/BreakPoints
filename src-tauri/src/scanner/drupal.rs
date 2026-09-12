@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use yaml_rust2::{Yaml, YamlLoader};
 
 use super::log::ScanLog;
-use super::types::{BreakpointDiscovery, DetectorOutput, FrameworkDetection, Kind};
+use super::types::{BreakpointDiscovery, DetectorOutput, Edge, FrameworkDetection, Kind};
 use super::units::widths_in_query;
 use super::walk::{FileIndex, ReadBudget};
 
@@ -90,10 +90,21 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
             let label = get("label").unwrap_or_else(|| {
                 key_name.rsplit('.').next().unwrap_or(&key_name).to_string()
             });
+            // Drupal's own documented form is two-sided: `all and (min-width:
+            // 560px) and (max-width: 850px)` is one named breakpoint with two
+            // boundaries. Giving both the same label produced two panels with
+            // identical names, and made the merge report a conflict between a
+            // file and itself.
+            let two_sided = hits.len() > 1;
             for hit in hits {
+                let name = if two_sided && hit.edge == Edge::Max {
+                    format!("{label} upper")
+                } else {
+                    label.clone()
+                };
                 breakpoints.push(BreakpointDiscovery {
                     width: hit.boundary,
-                    name: Some(label.clone()),
+                    name: Some(name),
                     source: format!("Drupal breakpoint {key_name}"),
                     source_file: file.clone(),
                     line: None,

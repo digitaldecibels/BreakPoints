@@ -369,20 +369,49 @@ fn find_conflicts(merged: &[BreakpointDiscovery], log: &mut ScanLog) -> Vec<Conf
             continue;
         }
         for pair in entries.windows(2) {
-            if (pair[0].width - pair[1].width).abs() > CROSS_TOLERANCE {
-                conflicts.push(Conflict {
-                    name: name.clone(),
-                    left: side(pair[0]),
-                    right: side(pair[1]),
-                });
+            if (pair[0].width - pair[1].width).abs() <= CROSS_TOLERANCE {
+                continue;
             }
+            // One declaration with two edges is not two sources disagreeing.
+            // Drupal's documented form, `(min-width: 560px) and (max-width:
+            // 850px)`, is a single named breakpoint with a lower and an upper
+            // bound, and reporting it asked people to resolve a disagreement
+            // between a file and itself. Two entries from the same declaration
+            // that sit on opposite edges are that case; two on the same edge
+            // are a real disagreement and still count.
+            let same_declaration =
+                pair[0].source_file == pair[1].source_file && pair[0].source == pair[1].source;
+            if same_declaration && pair[0].edge != pair[1].edge {
+                continue;
+            }
+            conflicts.push(Conflict {
+                name: name.clone(),
+                left: side(pair[0]),
+                right: side(pair[1]),
+            });
         }
     }
 
+    // A near miss is worth a question; a different decision is not.
+    //
+    // Five percent of 1536 is 76 pixels, so a deliberate 1470 used in two
+    // files was flagged as disagreeing with the configured 1536. The absolute
+    // cap keeps the case this was written for, a 992 laid out against a
+    // configured 1024, and loses the ones that were never in doubt.
+    const NEAR_MISS_CAP: f64 = 32.0;
+
+    let mut already_flagged: Vec<f64> = Vec::new();
     for configured in merged.iter().filter(|b| b.kind == Kind::Configured) {
         for css in merged.iter().filter(|b| b.kind == Kind::Css) {
             let gap = (configured.width - css.width).abs();
-            if gap > CROSS_TOLERANCE && gap <= configured.width * 0.05 && css.file_count >= 2 {
+            let window = (configured.width * 0.05).min(NEAR_MISS_CAP);
+            // One CSS width could sit near two configured ones and produce a
+            // card for each, all saying the same thing.
+            if already_flagged.contains(&css.width) {
+                continue;
+            }
+            if gap > CROSS_TOLERANCE && gap <= window && css.file_count >= 2 {
+                already_flagged.push(css.width);
                 log.note(format!(
                     "css lays out at {}px where the config says {}px",
                     css.width, configured.width

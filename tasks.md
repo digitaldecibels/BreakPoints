@@ -367,7 +367,7 @@ are the paths that can quietly break it.
 
 ### Scanner: alarms that are not real
 
-- [ ] **A Drupal breakpoint conflicts with itself.** Drupal's own documented
+- [x] **A Drupal breakpoint conflicts with itself.** Drupal's own documented
   form, `all and (min-width: 560px) and (max-width: 850px)`, yields two
   discoveries with the same label from the same line. `mod.rs` then groups by
   name, finds two entries called the same thing at different widths, and
@@ -375,7 +375,7 @@ are the paths that can quietly break it.
   two identically named panels. Skip the conflict when both sides share a
   source file and source, and disambiguate the second name. Small.
 
-- [ ] **The near-miss conflict window is too wide.** Two widths are called a
+- [x] **The near-miss conflict window is too wide.** Two widths are called a
   conflict when the gap is within five percent of the configured one, which at
   1536 is plus or minus 76 pixels, so a deliberate 1470 used in two files gets
   flagged. One CSS width can also conflict with two different configured widths
