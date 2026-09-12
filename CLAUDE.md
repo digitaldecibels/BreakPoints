@@ -47,6 +47,21 @@ consequences, and all three are load bearing:
    The chrome's own `@wheel.window` handler only ever covers the toolbar, the
    label strip and the bare canvas around a panel.
 
+## One session across the whole row
+
+Every panel shares cookies, `localStorage` and session storage. Verified by
+setting a cookie and a storage key in one panel and reading both back in two
+others. macOS gives every WKWebView the same default website data store unless
+it is told otherwise, and nothing here tells it otherwise.
+
+This is what makes the app usable on anything behind a login: sign in once in
+any panel and the whole row is signed in, at every width, with no repetition.
+It is worth knowing before changing how panels are created, because giving a
+panel its own data store would quietly turn one login into seven.
+
+The opposite is occasionally wanted, comparing a signed-in and a signed-out
+render side by side, and it is not possible today.
+
 ## Panning the row
 
 Three ways in, and they all end at `canvas::set_scroll`:
