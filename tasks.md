@@ -210,7 +210,7 @@ are the paths that can quietly break it.
   window is deliberately opened unfocused and left behind whatever you are
   doing.
 
-- [ ] **The window does not open where it was left.** Found on 12 September
+- [x] **The window does not open where it was left.** Found on 12 September
   2026 while working on the resize path, not looked for. The config records
   `{x: 61, y: 32, width: 5059, height: 1331}`, the display is 5120 by 1440
   logical, and the window opens at 1400 by 872, which is the builder's default.

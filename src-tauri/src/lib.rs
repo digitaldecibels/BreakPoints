@@ -83,27 +83,54 @@ fn remember_window(app: &tauri::AppHandle, state: &state::Shared) {
     let _ = config::save(app, &config);
 }
 
+/// One screen, in logical pixels.
+#[derive(Debug, Clone, Copy)]
+pub struct Screen {
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+}
+
 /// Would a remembered position still put the window somewhere visible?
 ///
 /// A saved position outlives the display it was saved on, and a window
 /// restored onto a monitor that is no longer plugged in looks exactly like the
 /// app failing to launch.
-fn fits_on_a_screen(app: &tauri::App, geometry: &model::WindowGeometry) -> bool {
-    let Ok(monitors) = app.available_monitors() else {
-        return false;
-    };
-    monitors.iter().any(|monitor| {
-        let scale = monitor.scale_factor();
-        let position = monitor.position();
-        let size = monitor.size();
-        let left = position.x as f64 / scale;
-        let top = position.y as f64 / scale;
-        let right = left + size.width as f64 / scale;
-        let bottom = top + size.height as f64 / scale;
-        geometry.x >= left - 1.0
-            && geometry.y >= top - 1.0
-            && geometry.fits_within(right, bottom)
+///
+/// An empty list means nobody has told us about any screens, which is not the
+/// same as the window not fitting on one. Treating those two the same is what
+/// made the app forget its position on every launch: `available_monitors()`
+/// answers with nothing this early in startup, so every remembered geometry
+/// was thrown away and the window opened at the default size instead.
+pub fn fits_on_a_screen(geometry: &model::WindowGeometry, screens: &[Screen]) -> bool {
+    if screens.is_empty() {
+        return true;
+    }
+    screens.iter().any(|screen| {
+        geometry.x >= screen.left - 1.0
+            && geometry.y >= screen.top - 1.0
+            && geometry.fits_within(screen.right, screen.bottom)
     })
+}
+
+fn screens_of(monitors: &[tauri::window::Monitor]) -> Vec<Screen> {
+    monitors
+        .iter()
+        .map(|monitor| {
+            let scale = monitor.scale_factor();
+            let position = monitor.position();
+            let size = monitor.size();
+            let left = position.x as f64 / scale;
+            let top = position.y as f64 / scale;
+            Screen {
+                left,
+                top,
+                right: left + size.width as f64 / scale,
+                bottom: top + size.height as f64 / scale,
+            }
+        })
+        .collect()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -164,12 +191,34 @@ pub fn run() {
                 // jumps in front of what you were typing is a nuisance.
                 .focused(false);
 
-            if let Some(geometry) = remembered.filter(|g| fits_on_a_screen(app, g)) {
+            // Applied first and checked afterwards. Screens cannot be
+            // enumerated reliably before a window exists, and refusing a
+            // geometry because nothing has told us about any screens yet is
+            // how the app came to forget its position on every launch.
+            if let Some(geometry) = remembered {
                 builder = builder
                     .position(geometry.x, geometry.y)
                     .inner_size(geometry.width, geometry.height);
             }
             let window = builder.build()?;
+
+            // Now the window exists, its screens can be asked about. A
+            // remembered geometry that lands on a display which is no longer
+            // there is put back to something visible.
+            if let Some(geometry) = remembered {
+                let screens = window
+                    .available_monitors()
+                    .map(|monitors| screens_of(&monitors))
+                    .unwrap_or_default();
+                if !fits_on_a_screen(&geometry, &screens) {
+                    eprintln!(
+                        "[breakpoints] {:.0}x{:.0} at {:.0},{:.0} is not on any screen any more, so the window is at its default size",
+                        geometry.width, geometry.height, geometry.x, geometry.y
+                    );
+                    let _ = window.set_size(LogicalSize::new(1400.0, 900.0));
+                    let _ = window.center();
+                }
+            }
 
             let size = window.inner_size()?;
             let scale = window.scale_factor().unwrap_or(1.0);
@@ -332,4 +381,46 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error running Break/Points");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn screen(left: f64, top: f64, width: f64, height: f64) -> Screen {
+        Screen { left, top, right: left + width, bottom: top + height }
+    }
+
+    fn geometry(x: f64, y: f64, width: f64, height: f64) -> model::WindowGeometry {
+        model::WindowGeometry { x, y, width, height }
+    }
+
+    /// The one that was wrong. Nothing has told us about any screens yet, which
+    /// is not the same as the window not fitting on one, and treating them the
+    /// same made the app forget its position on every single launch.
+    #[test]
+    fn no_screens_known_is_not_a_reason_to_forget_where_the_window_was() {
+        assert!(fits_on_a_screen(&geometry(61.0, 32.0, 5059.0, 1331.0), &[]));
+    }
+
+    #[test]
+    fn a_window_that_fits_the_screen_is_restored() {
+        let screens = [screen(0.0, 0.0, 5120.0, 1440.0)];
+        assert!(fits_on_a_screen(&geometry(61.0, 32.0, 5059.0, 1331.0), &screens));
+        assert!(fits_on_a_screen(&geometry(0.0, 0.0, 1400.0, 900.0), &screens));
+    }
+
+    /// The case the check exists for: a display that is no longer plugged in.
+    #[test]
+    fn a_window_on_a_screen_that_is_gone_is_not_restored() {
+        let laptop = [screen(0.0, 0.0, 1512.0, 982.0)];
+        assert!(!fits_on_a_screen(&geometry(3000.0, 100.0, 1400.0, 900.0), &laptop));
+        assert!(!fits_on_a_screen(&geometry(-2000.0, 0.0, 1400.0, 900.0), &laptop));
+    }
+
+    #[test]
+    fn a_second_screen_counts() {
+        let both = [screen(0.0, 0.0, 1512.0, 982.0), screen(1512.0, 0.0, 2560.0, 1440.0)];
+        assert!(fits_on_a_screen(&geometry(2000.0, 100.0, 1400.0, 900.0), &both));
+    }
 }
