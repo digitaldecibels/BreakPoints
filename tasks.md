@@ -444,7 +444,7 @@ are the paths that can quietly break it.
 
 ### Scanner: remaining gaps
 
-- [ ] **A monorepo merges every config it finds.** Every framework config in
+- [x] **A monorepo merges every config it finds.** Every framework config in
   the tree contributes its widths to one list, so four apps with four different
   screen sets produce their union while the sheet names a single file as the
   source. The same happens with Drupal breakpoint files across a theme, a

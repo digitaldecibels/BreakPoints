@@ -37,16 +37,49 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     let declared = declared_version(index, budget, log);
     let mut found_any = false;
 
-    for name in CONFIG_NAMES {
-        for rel in index.by_name(name) {
-            let Some(text) = budget.read(index, rel, log) else { continue };
+    // One config, not all of them.
+    //
+    // A monorepo has one per app, each with its own screens, and taking the
+    // union produced a row of breakpoints that no single app has while the
+    // sheet named one file as the source. The nearest to the root wins,
+    // because that is the one a project-wide setting lives in, and any others
+    // are noted rather than merged.
+    let mut configs: Vec<&std::path::PathBuf> = CONFIG_NAMES
+        .iter()
+        .flat_map(|name| index.by_name(name))
+        .collect();
+    configs.sort_by_key(|rel| (rel.components().count(), rel.to_string_lossy().to_string()));
+
+    if let Some(rel) = configs.first() {
+        if let Some(text) = budget.read(index, rel, log) {
             let file = rel.to_string_lossy().to_string();
-            if let Some(detection) = parse_v3(&text, &file, declared.as_deref(), log, &mut out.warnings) {
+            if let Some(detection) = parse_v3(&text, &file, declared.as_deref(), log, &mut out.warnings)
+            {
                 found_any = true;
                 out.breakpoints.extend(detection.breakpoints.clone());
                 out.frameworks.push(detection);
             }
         }
+    }
+    for rel in configs.iter().skip(1) {
+        log.skip(
+            &rel.to_string_lossy(),
+            "another Tailwind config is closer to the project root, and only one can describe this row",
+        );
+    }
+    if configs.len() > 1 {
+        out.warnings.push(ScanWarning {
+            file: configs[0].to_string_lossy().to_string(),
+            message: format!(
+                "{} Tailwind configs found; {} was used",
+                configs.len(),
+                configs[0].to_string_lossy()
+            ),
+            detail: vec![
+                "Each one describes its own app, and their breakpoints are not the same set.".into(),
+                "The config nearest the project root was used. Open the app you mean as its own project to test the others.".into(),
+            ],
+        });
     }
 
     // v4: the breakpoints are in CSS, so look for the import and the @theme.
