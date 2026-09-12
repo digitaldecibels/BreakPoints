@@ -21,6 +21,10 @@ use crate::scanner::types::ScanReport;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
+    /// Unique to this note, so a batch that was handed over can be recognised
+    /// and forgotten once the caller has clearly survived to ask again.
+    #[serde(default)]
+    pub id: String,
     pub panel: String,
     /// The name a person uses, "Medium", not the id.
     pub panel_name: String,
@@ -166,6 +170,20 @@ pub struct AppState {
     /// because `spawn` awaits.
     pub spawning: tokio::sync::Mutex<()>,
 
+    /// Notes handed to a caller that has not yet proved it received them.
+    ///
+    /// Collecting used to take a note out of the queue and hope. If the HTTP
+    /// response never arrived, because the session was killed, the network
+    /// stack dropped it, or the caller timed out, the note was gone and the
+    /// person who wrote it had no way to know. A note is somebody describing a
+    /// bug while looking at it, which is too expensive to lose to a dropped
+    /// reply.
+    ///
+    /// A batch stays here until the same caller asks again, which it can only
+    /// do if it received the last answer, or until it goes stale and returns
+    /// to the queue.
+    pub in_flight: Mutex<Vec<InFlight>>,
+
     /// Panels whose first navigation was reported before the panel itself had
     /// been added to the row.
     ///
@@ -203,6 +221,23 @@ pub struct AppState {
     /// Keeps the debounced file watcher alive; dropping it stops watching.
     pub watcher: Mutex<Option<crate::watcher::WatchHandle>>,
 }
+
+/// One batch of notes handed over and not yet acknowledged.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InFlight {
+    pub client: String,
+    pub at: u64,
+    pub reports: Vec<Report>,
+}
+
+/// How long a handed-over batch waits for the caller to ask again before it is
+/// treated as lost and put back.
+///
+/// Generous on purpose. Asking again is what acknowledges it, and a session
+/// can reasonably spend a few minutes acting on a note before it comes back
+/// for the next one.
+const IN_FLIGHT_TIMEOUT_MS: u64 = 5 * 60 * 1000;
 
 /// An agent session that has claimed reports.
 ///
@@ -301,6 +336,10 @@ impl AppState {
     /// note whoever it was addressed to, which is what makes a note written
     /// while a dead session owned reports still reachable.
     pub fn take_reports(&self) -> Vec<Report> {
+        // Nothing is held in flight here. This is the window's own copy
+        // button, so the notes are on somebody's clipboard by the time this
+        // returns and there is no reply to lose.
+        self.in_flight.lock().unwrap().clear();
         let taken = std::mem::take(&mut *self.reports.lock().unwrap());
         if !taken.is_empty() {
             self.persist_reports();
@@ -321,6 +360,12 @@ impl AppState {
     /// addressed to nobody. Matching only the exact id left those notes in the
     /// queue forever while the session that wanted them polled past them.
     pub fn take_reports_for(&self, client: &str) -> Vec<Report> {
+        // This caller asking again is proof it received the last batch, so
+        // that batch can be forgotten. Anything else that has been waiting too
+        // long goes back in the queue to be handed over a second time, because
+        // a note delivered twice is a nuisance and a note lost is not.
+        self.settle_in_flight(Some(client));
+
         let mut reports = self.reports.lock().unwrap();
         let mut mine = Vec::new();
         let mut theirs = Vec::new();
@@ -332,10 +377,37 @@ impl AppState {
         }
         *reports = theirs;
         drop(reports);
+
         if !mine.is_empty() {
+            self.in_flight.lock().unwrap().push(InFlight {
+                client: client.to_string(),
+                at: crate::util::now_ms(),
+                reports: mine.clone(),
+            });
             self.persist_reports();
         }
         mine
+    }
+
+    /// Forget what `acknowledged_by` was given, and put back anything that has
+    /// been waiting too long.
+    pub fn settle_in_flight(&self, acknowledged_by: Option<&str>) {
+        let now = crate::util::now_ms();
+        let mut returning: Vec<Report> = Vec::new();
+        {
+            let mut in_flight = self.in_flight.lock().unwrap();
+            in_flight.retain(|batch| {
+                if Some(batch.client.as_str()) == acknowledged_by {
+                    return false;
+                }
+                if now.saturating_sub(batch.at) >= IN_FLIGHT_TIMEOUT_MS {
+                    returning.extend(batch.reports.iter().cloned());
+                    return false;
+                }
+                true
+            });
+        }
+        self.requeue_reports(returning);
     }
 
     /// How many notes are waiting, whoever they are addressed to. The toolbar
@@ -392,6 +464,7 @@ impl AppState {
         let saved = SavedReports {
             reports: self.reports.lock().unwrap().clone(),
             owner: self.report_owner.lock().unwrap().clone(),
+            in_flight: self.in_flight.lock().unwrap().clone(),
         };
         let Ok(text) = serde_json::to_string_pretty(&saved) else {
             return;
@@ -418,6 +491,13 @@ impl AppState {
             Ok(saved) => {
                 let mut reports = self.reports.lock().unwrap();
                 *reports = saved.reports;
+                // Anything that was in flight when the app stopped can never
+                // be acknowledged now, so it goes back in the queue rather
+                // than disappearing with the session it was handed to.
+                for batch in saved.in_flight {
+                    reports.extend(batch.reports);
+                }
+                reports.sort_by_key(|report| report.at);
             }
             Err(err) => {
                 eprintln!("[breakpoints] waiting reports at {} did not parse: {err}", path.display());
@@ -434,6 +514,8 @@ struct SavedReports {
     reports: Vec<Report>,
     #[serde(default)]
     owner: Option<ClientSession>,
+    #[serde(default)]
+    in_flight: Vec<InFlight>,
 }
 
 #[cfg(test)]
@@ -442,6 +524,7 @@ mod tests {
 
     fn note(client: Option<&str>) -> Report {
         let mut report = Report {
+            id: "n1".into(),
             panel: "p1".into(),
             panel_name: "Medium".into(),
             width: 768.0,
@@ -533,6 +616,44 @@ mod tests {
         assert_eq!(after.take_reports_for("session-a").len(), 1);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A batch handed over is kept until the caller proves it arrived, which it
+    /// does by asking again. Collecting used to take notes out of the queue and
+    /// hope the reply reached anybody.
+    #[test]
+    fn a_note_handed_over_is_kept_until_the_caller_asks_again() {
+        let state = AppState::default();
+        state.push_report(note(None));
+
+        let first = state.take_reports_for("session-a");
+        assert_eq!(first.len(), 1);
+        assert_eq!(state.report_count(), 0, "out of the queue");
+        assert_eq!(state.in_flight.lock().unwrap().len(), 1, "but not forgotten");
+
+        // Asking again is the acknowledgement.
+        let second = state.take_reports_for("session-a");
+        assert!(second.is_empty());
+        assert!(
+            state.in_flight.lock().unwrap().is_empty(),
+            "the first batch is settled once the caller comes back"
+        );
+    }
+
+    /// A batch nobody ever came back for goes back in the queue rather than
+    /// vanishing with the session it was handed to.
+    #[test]
+    fn a_batch_nobody_acknowledged_comes_back() {
+        let state = AppState::default();
+        state.push_report(note(None));
+        state.take_reports_for("session-a");
+
+        // Pretend it was handed over long enough ago to have been lost.
+        state.in_flight.lock().unwrap()[0].at = 1;
+        state.settle_in_flight(Some("session-b"));
+
+        assert_eq!(state.report_count(), 1, "back in the queue");
+        assert_eq!(state.take_reports_for("session-b").len(), 1);
     }
 
     #[test]

@@ -277,6 +277,7 @@ fn report(app: &AppHandle, state: &Shared, nonce: &str, msg: ReportIn) {
     };
 
     let mut report = Report {
+        id: util::random_token(8),
         panel: msg.panel.clone(),
         panel_name: name,
         width,

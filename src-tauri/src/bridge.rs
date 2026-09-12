@@ -227,10 +227,22 @@ where
     }
     for (sent, report) in waiting.iter().enumerate() {
         if sink.send(Message::Text(report.text.clone())).await.is_err() {
+            // Settle first, then put back only what did not go. Without the
+            // settle, the unsent notes would be in the queue and in flight at
+            // once, and the caller would eventually be handed them twice.
+            if let Some(client) = client {
+                state.settle_in_flight(Some(client));
+            }
             state.requeue_reports(waiting[sent..].to_vec());
             tools::emit_report_count(app, state);
             return false;
         }
+    }
+    // A send that returned is delivery, so there is nothing left to hold. The
+    // in-flight list exists for a reply that might never arrive, which is a
+    // problem the socket does not have.
+    if let Some(client) = client {
+        state.settle_in_flight(Some(client));
     }
     tools::emit_report_count(app, state);
     true

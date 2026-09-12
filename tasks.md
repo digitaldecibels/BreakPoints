@@ -273,7 +273,7 @@ are the paths that can quietly break it.
   reported width against its declared width would catch all three. It is also
   the natural home for the width check above. Medium.
 
-- [ ] **Note delivery is take on read.** Collecting a note removes it from the
+- [x] **Note delivery is take on read.** Collecting a note removes it from the
   queue, so a note handed to an HTTP response that never arrives is gone. The
   socket path recovers correctly now, because a failed send puts the rest back,
   but `take_reports` and `await_reports` do not. An acknowledgement step, where
