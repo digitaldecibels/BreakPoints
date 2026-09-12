@@ -145,7 +145,7 @@ are the paths that can quietly break it.
   `web/core`, or a checkout in `.claude/worktrees`, currently offers you a
   rescan of changes that are not the site.
 
-- [ ] **Screenshot cropping and stitching are per-pixel loops.** `shots::crop`
+- [x] **Screenshot cropping and stitching are per-pixel loops.** `shots::crop`
   and the stitch in `walk_and_stitch` call `get_pixel` and `put_pixel` one
   pixel at a time, so a twenty-tile full-page capture on a Retina display is
   around 150 million bounds-checked calls, single-threaded. `crop_imm` and
@@ -183,6 +183,23 @@ are the paths that can quietly break it.
   disappears. Small.
 
 ### Small fixes worth taking
+
+- [ ] **A screenshot of a window that is behind something comes back blank.**
+  Found on 12 September 2026 while replacing the per-pixel crop, not looked
+  for. Every capture taken during the run came back as a single flat colour at
+  the right dimensions, while one taken yesterday has real content, and the new
+  crop was proved pixel-identical to the old loop by a unit test, so the
+  blankness is in `capture_window` rather than anything downstream. The window
+  was behind a terminal throughout, which is the obvious suspect and is not
+  proven: confirm by taking one with Break/Points frontmost.
+
+  A guard now refuses to write a capture that is one flat colour, so nothing
+  hands over a blank PNG as a success any more. What is still unknown is
+  whether an occluded window can be captured at all on this macOS version. If
+  it cannot, the app should say so once rather than on every attempt, and the
+  agent tools should say the window has to be visible. That matters because the
+  window is deliberately opened unfocused and left behind whatever you are
+  doing.
 
 - [ ] **The window does not open where it was left.** Found on 12 September
   2026 while working on the resize path, not looked for. The config records

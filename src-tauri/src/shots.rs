@@ -42,6 +42,14 @@ pub async fn capture(
     let image = capture_window(app)?;
     let scale = window_scale(app);
     let cropped = crop(&image, &rect, scale)?;
+    if looks_blank(&cropped) {
+        return Err(format!(
+            "the capture of {name} came back as one flat colour, so it is not a picture of \
+             anything. The usual cause is the window being behind something else or off screen: \
+             bring Break/Points to the front and try again. A page that really is a single \
+             colour reads the same way."
+        ));
+    }
     write_png(app, state, &id, &name, cropped)
 }
 
@@ -183,12 +191,10 @@ async fn walk_and_stitch(
         if top_px >= height_px {
             break;
         }
-        let rows = shot.height().min(height_px - top_px);
-        for row in 0..rows {
-            for column in 0..width_px.min(shot.width()) {
-                out.put_pixel(column, top_px + row, *shot.get_pixel(column, row));
-            }
-        }
+        // The tile is pasted whole. `replace` clips at the destination edges,
+        // so a last tile that runs past the bottom is handled for free, which
+        // is what the row and column limits were doing by hand.
+        image::imageops::replace(&mut out, &shot, 0, i64::from(top_px));
     }
 
     Ok(out)
@@ -296,6 +302,16 @@ fn capture_window(app: &AppHandle) -> Result<RgbaImage, String> {
 /// The window capture is in physical pixels and every rect we track is logical,
 /// so the crop has to go through the scale factor or a Retina shot lands on the
 /// wrong quarter of the image.
+/// Whether an image is a single flat colour.
+///
+/// A window capture of an occluded or unrendered window comes back like this,
+/// and it is indistinguishable from a real screenshot by size alone.
+fn looks_blank(image: &RgbaImage) -> bool {
+    let mut pixels = image.pixels();
+    let Some(first) = pixels.next() else { return true };
+    pixels.all(|p| p == first)
+}
+
 fn crop(image: &RgbaImage, rect: &Rect, scale: f64) -> Result<RgbaImage, String> {
     let x = (rect.x * scale).round().max(0.0) as u32;
     let y = (rect.y * scale).round().max(0.0) as u32;
@@ -311,13 +327,10 @@ fn crop(image: &RgbaImage, rect: &Rect, scale: f64) -> Result<RgbaImage, String>
         return Err("panel has no visible area".into());
     }
 
-    let mut out = RgbaImage::new(width, height);
-    for row in 0..height {
-        for column in 0..width {
-            out.put_pixel(column, row, *image.get_pixel(x + column, y + row));
-        }
-    }
-    Ok(out)
+    // Row by row rather than pixel by pixel. A 1024 panel on a Retina display
+    // is 2048 by 1800, so the old nested loop was 3.7 million bounds-checked
+    // calls per tile, and a full-page shot does this once per screenful.
+    Ok(image::imageops::crop_imm(image, x, y, width, height).to_image())
 }
 
 fn write_png(
@@ -383,6 +396,42 @@ pub async fn capture_all(app: &AppHandle, state: &Shared) -> Result<Vec<PathBuf>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The crop was a hand-written per-pixel loop and is now the image
+    /// library's own. Same pixels, or the screenshots are worthless.
+    #[test]
+    fn cropping_keeps_the_same_pixels_the_old_loop_did() {
+        let mut source = RgbaImage::new(16, 12);
+        for y in 0..12u32 {
+            for x in 0..16u32 {
+                source.put_pixel(x, y, image::Rgba([x as u8 * 7, y as u8 * 11, 3, 255]));
+            }
+        }
+        let rect = Rect { x: 3.0, y: 2.0, width: 6.0, height: 5.0 };
+        let out = crop(&source, &rect, 1.0).expect("crop");
+        assert_eq!((out.width(), out.height()), (6, 5));
+        for y in 0..5u32 {
+            for x in 0..6u32 {
+                assert_eq!(
+                    out.get_pixel(x, y),
+                    source.get_pixel(x + 3, y + 2),
+                    "pixel {x},{y}"
+                );
+            }
+        }
+    }
+
+    /// A capture that comes back all one colour is not a screenshot, and the
+    /// app should not hand one over as if it were.
+    #[test]
+    fn a_uniform_image_is_detectable() {
+        let blank = RgbaImage::from_pixel(8, 8, image::Rgba([30, 30, 34, 255]));
+        assert!(looks_blank(&blank));
+        let mut real = blank.clone();
+        real.put_pixel(4, 4, image::Rgba([255, 255, 255, 255]));
+        assert!(!looks_blank(&real));
+    }
+
 
     /// A gradient, so a crop that lands in the wrong place is obvious rather
     /// than merely the wrong size.
