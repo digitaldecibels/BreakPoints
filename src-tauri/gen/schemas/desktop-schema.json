@@ -357,6 +357,12 @@
           "markdownDescription": "Enables the apply_viewports command without any pre-configured scope."
         },
         {
+          "description": "Enables the audit_accessibility command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-audit-accessibility",
+          "markdownDescription": "Enables the audit_accessibility command without any pre-configured scope."
+        },
+        {
           "description": "Enables the audit_all command without any pre-configured scope.",
           "type": "string",
           "const": "allow-audit-all",
@@ -601,6 +607,12 @@
           "type": "string",
           "const": "deny-apply-viewports",
           "markdownDescription": "Denies the apply_viewports command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the audit_accessibility command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-audit-accessibility",
+          "markdownDescription": "Denies the audit_accessibility command without any pre-configured scope."
         },
         {
           "description": "Denies the audit_all command without any pre-configured scope.",

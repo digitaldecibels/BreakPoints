@@ -287,6 +287,7 @@ pub fn run() {
             commands::panel_console,
             commands::screenshot_panel,
             commands::audit_all,
+            commands::audit_accessibility,
             commands::dropped_path,
         ])
         .run(tauri::generate_context!())

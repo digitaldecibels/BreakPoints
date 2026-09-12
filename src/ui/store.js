@@ -66,7 +66,11 @@ export function registerStore(Alpine) {
      *  the clipboard is touched. */
     reportWatching: false,
 
-    // Sheets: "none", "scan" or "settings"
+    // The accessibility audit. `report` is kept after the sheet closes, so the
+    // label strip can keep showing which panel had what.
+    access: { running: false, report: null },
+
+    // Sheets: "none", "scan", "settings" or "access"
     sheet: "none",
     settingsTab: "viewports",
 
@@ -473,6 +477,45 @@ export function registerStore(Alpine) {
       this.picking = on;
       await api.setPicking(on);
       if (on) this.say("Point at what is wrong in any panel, then describe it.");
+    },
+
+    /** Violations found in one panel, or null if the audit has not run. */
+    accessCountFor(panelId) {
+      const panels = this.access.report?.panels;
+      if (!panels) return null;
+      const found = panels.find((panel) => panel.panel === panelId);
+      if (!found) return null;
+      if (found.error) return "?";
+      return found.violations.length;
+    },
+
+    /** Run the checks in every panel, then show what came back.
+     *
+     *  The sheet is opened afterwards rather than first, because opening one
+     *  hides the panels and a hidden webview is not a laid out one. Contrast
+     *  and target size are measured against layout, so auditing behind a sheet
+     *  would measure nothing.
+     */
+    async runAccessibilityAudit() {
+      if (this.access.running) return;
+      if (!this.hasPanels) {
+        this.say("Open a project or type a URL first.");
+        return;
+      }
+      this.access.running = true;
+      this.say(`Checking ${this.panels.length} panels. This takes a few seconds each.`);
+      try {
+        this.access.report = await api.auditAccessibility();
+        const report = this.access.report;
+        if (!report.violationsTotal) {
+          this.say(`No violations at any of the ${report.widthsAudited.length} widths.`);
+        }
+        this.openSheet("access");
+      } catch (error) {
+        this.say(error.message);
+      } finally {
+        this.access.running = false;
+      }
     },
 
     async setFollow(on) {

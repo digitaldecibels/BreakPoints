@@ -55,6 +55,7 @@ export const api = {
   setBridge: (on) => call("set_bridge", { on }),
   screenshotPanel: (panel) => call("screenshot_panel", { panel }),
   auditAll: () => call("audit_all"),
+  auditAccessibility: () => call("audit_accessibility"),
 };
 
 export { listen };

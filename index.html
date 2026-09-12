@@ -217,6 +217,29 @@
           <span x-text="$store.bp.reportCount"></span>
         </button>
 
+        <!-- The accessibility checks. Same thesis as Report: a violation that
+             only exists at one width is invisible to a tool that tests one
+             width. Runs in every panel, so it is a button rather than
+             something that happens on load. -->
+        <button
+          type="button"
+          class="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border bg-chrome-raised px-2.5 text-[12px] font-medium disabled:opacity-60"
+          :class="$store.bp.access.report?.widthSpecificCount ? 'border-warn text-warn' : 'border-line text-text-dim'"
+          :disabled="$store.bp.access.running"
+          @click="$store.bp.runAccessibilityAudit()"
+          :title="$store.bp.access.report
+            ? `${$store.bp.access.report.violationsTotal} violations, ${$store.bp.access.report.widthSpecificCount} of them only at some widths. Click to run again.`
+            : 'Run accessibility checks in every panel, with the width attached to each violation'"
+        >
+          <span class="h-3 w-3 shrink-0" x-icon="'check'"></span>
+          <span x-text="$store.bp.access.running ? 'Checking' : 'Accessibility'"></span>
+          <span
+            x-show="$store.bp.access.report?.violationsTotal"
+            class="font-mono"
+            x-text="$store.bp.access.report?.violationsTotal"
+          ></span>
+        </button>
+
         <!-- The agent bridge.
 
              This was a bare 6px dot with no label, which said nothing to
@@ -356,7 +379,25 @@
                     ></span>
                     <div class="truncate text-[12px] leading-[15px] font-[590] text-text" x-text="panel.name"></div>
                   </div>
-                  <div class="truncate font-mono text-[10px] leading-[13px] tracking-[0.02em] text-text-dim" x-text="meta(panel)"></div>
+                  <div class="flex items-center gap-1.5">
+                    <div class="truncate font-mono text-[10px] leading-[13px] tracking-[0.02em] text-text-dim" x-text="meta(panel)"></div>
+                    <!-- What the accessibility checks found at this width.
+                         Beside the width rather than in a list somewhere,
+                         because the width is the thing the number is about.
+                         Absent until the audit has run: nothing is not the
+                         same claim as zero. -->
+                    <button
+                      type="button"
+                      x-show="$store.bp.accessCountFor(panel.id) !== null"
+                      class="shrink-0 rounded-sm px-1 font-mono text-[10px] leading-[13px]"
+                      :class="$store.bp.accessCountFor(panel.id) ? 'bg-warn/15 text-warn' : 'text-text-faint'"
+                      @click="$store.bp.openSheet('access')"
+                      :title="$store.bp.accessCountFor(panel.id)
+                        ? `${$store.bp.accessCountFor(panel.id)} accessibility violations at ${Math.round(panel.width)}px. Click for what they were.`
+                        : `No accessibility violations at ${Math.round(panel.width)}px.`"
+                      x-text="$store.bp.accessCountFor(panel.id) === 0 ? '0' : $store.bp.accessCountFor(panel.id)"
+                    ></button>
+                  </div>
                 </div>
                 <!-- Hover reveals the ghost buttons and nothing else moves.
                      Reload, screenshot, inspect, and open in a browser. -->
@@ -580,6 +621,133 @@
             <template x-for="(entry, index) in $store.bp.scan.logLines" :key="index">
               <div class="whitespace-pre-wrap font-mono text-[10px] leading-4 text-text-faint" x-text="renderLog(entry)"></div>
             </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= Accessibility sheet =================
+
+           Opened after the audit, never before it: a sheet hides the panels,
+           and a hidden webview is not a laid out one, so contrast and target
+           size would be measured against nothing. -->
+      <div
+        x-show="$store.bp.sheet === 'access'"
+        class="fixed inset-0 z-10 flex items-center justify-center overflow-y-auto bg-scrim p-10"
+        @keydown.escape.window="$store.bp.closeSheet()"
+        @click.self="$store.bp.closeSheet()"
+      >
+        <div
+          class="bp-sheet-in my-auto w-[640px] shrink-0 rounded-sheet border border-line bg-chrome p-6"
+          role="dialog"
+          aria-label="Accessibility"
+        >
+          <div class="flex items-baseline gap-2">
+            <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">Accessibility</h2>
+            <span class="flex-1"></span>
+            <button type="button" class="text-[11px] text-text-dim hover:text-text" @click="$store.bp.closeSheet()">Close</button>
+          </div>
+
+          <p class="mt-1 text-[12px] leading-5 text-text-dim">
+            <template x-if="$store.bp.access.report">
+              <span>
+                <span x-text="$store.bp.access.report.violationsTotal"></span>
+                violations across
+                <span x-text="$store.bp.access.report.widthsAudited.length"></span>
+                widths,
+                <span class="text-warn" x-text="$store.bp.access.report.widthSpecificCount"></span>
+                of them only at some widths.
+                Checked with axe-core <span x-text="$store.bp.access.report.axeVersion"></span>.
+              </span>
+            </template>
+          </p>
+
+          <!-- Nothing wrong is a result, and worth saying plainly rather than
+               leaving an empty box. -->
+          <div
+            x-show="$store.bp.access.report && !$store.bp.access.report.rules.length"
+            class="mt-5 rounded-sm border border-line bg-chrome-raised p-4 text-[12px] leading-5 text-text-dim"
+          >
+            Nothing failed at any width. axe-core checks what can be checked
+            automatically, which is roughly a third of WCAG, so this is a clean
+            bill on the mechanical half and not a claim about the rest.
+          </div>
+
+          <div class="mt-5 max-h-[60vh] space-y-3 overflow-y-auto">
+            <template x-for="rule in ($store.bp.access.report?.rules ?? [])" :key="rule.rule">
+              <div class="rounded-sm border border-line bg-chrome-raised p-3">
+                <div class="flex items-baseline gap-2">
+                  <span
+                    class="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                    :class="{
+                      critical: 'bg-error/15 text-error',
+                      serious: 'bg-warn/15 text-warn',
+                      moderate: 'bg-chrome text-text-dim',
+                      minor: 'bg-chrome text-text-faint',
+                    }[rule.impact] ?? 'bg-chrome text-text-faint'"
+                    x-text="rule.impact"
+                  ></span>
+                  <span class="font-mono text-[12px] text-text" x-text="rule.rule"></span>
+                  <span class="flex-1"></span>
+                  <!-- The point of the app, in one line: which widths. -->
+                  <span
+                    x-show="rule.widthSpecific"
+                    class="shrink-0 text-[10px] font-medium uppercase tracking-wide text-warn"
+                  >
+                    only at some widths
+                  </span>
+                </div>
+
+                <p class="mt-1.5 text-[12px] leading-5 text-text-dim" x-text="rule.help"></p>
+
+                <div class="mt-2 flex flex-wrap items-center gap-1">
+                  <template x-for="width in rule.widths" :key="width">
+                    <span
+                      class="rounded-sm border px-1.5 py-0.5 font-mono text-[10px]"
+                      :class="rule.widthSpecific ? 'border-warn text-warn' : 'border-line text-text-dim'"
+                      x-text="`${Math.round(width)}px`"
+                    ></span>
+                  </template>
+                </div>
+
+                <div class="mt-2 space-y-0.5">
+                  <template x-for="example in rule.examples" :key="example">
+                    <div class="truncate font-mono text-[10px] text-text-faint" x-text="example"></div>
+                  </template>
+                </div>
+
+                <a
+                  class="mt-2 inline-block text-[11px] text-accent"
+                  :href="rule.helpUrl"
+                  target="_blank"
+                  rel="noreferrer"
+                  x-show="rule.helpUrl"
+                >How to fix this</a>
+              </div>
+            </template>
+          </div>
+
+          <!-- A panel that could not be asked is not a panel where nothing was
+               wrong, so it is named rather than counted as a pass. -->
+          <template x-for="panel in ($store.bp.access.report?.panels ?? []).filter(p => p.error)" :key="panel.panel">
+            <div class="mt-2 text-[11px] leading-4 text-warn">
+              <span x-text="panel.panelName"></span> could not be checked:
+              <span class="text-text-dim" x-text="panel.error"></span>
+            </div>
+          </template>
+
+          <div class="mt-5 flex items-center border-t border-line pt-4">
+            <span class="flex-1 text-[11px] text-text-faint">
+              Ranked worst first, and within one impact the width-specific ones
+              first.
+            </span>
+            <button
+              type="button"
+              class="h-7 rounded-sm border border-line bg-chrome-raised px-3 text-[12px] font-medium text-text"
+              :disabled="$store.bp.access.running"
+              @click="$store.bp.closeSheet(); $store.bp.runAccessibilityAudit()"
+            >
+              Run again
+            </button>
           </div>
         </div>
       </div>

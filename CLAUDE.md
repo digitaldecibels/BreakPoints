@@ -483,7 +483,16 @@ tool testing one width cannot see. Panels are audited one at a time on purpose:
 seven copies of axe walking seven DOMs at once makes every one of them slower,
 and this is a measuring instrument. axe is vendored rather than fetched so the
 audit works with no network and the version is the one the tests were written
-against. It has no interface yet; see `tasks.md`.
+against. The toolbar button runs it, the results open in their own sheet ranked worst
+first, and each panel's label carries the count found at that width. The sheet
+opens after the run and never before it: a sheet hides the panels, and a hidden
+webview is not a laid out one, so contrast and target size would be measured
+against nothing.
+
+Violations deliberately do not join the queue `take_reports` drains. One queue
+would be tidier, but a page with forty violations would bury the two notes a
+person actually wrote, and those notes are the ones with a human judgement in
+them.
 
 Lighthouse is the wrong tool here and always will be: it drives Chrome over the
 DevTools Protocol, and a panel is a WKWebView.

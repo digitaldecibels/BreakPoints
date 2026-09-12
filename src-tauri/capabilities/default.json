@@ -21,6 +21,7 @@
     "opener:allow-open-url",
     "allow-app-state",
     "allow-apply-viewports",
+    "allow-audit-accessibility",
     "allow-audit-all",
     "allow-boot",
     "allow-breakpoint-sources",

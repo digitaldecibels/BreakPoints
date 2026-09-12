@@ -587,6 +587,19 @@ pub async fn audit_all(app: AppHandle, state: State<'_, Shared>) -> Result<Value
     crate::audit::run(&app, &shared).await
 }
 
+/// Run the accessibility checks in every panel.
+///
+/// Panels have to be visible while this runs, so the window shows a notice
+/// rather than a sheet and only opens the results when it is done. A sheet
+/// hides the panels, and a hidden webview is not a laid out one.
+#[tauri::command]
+pub async fn audit_accessibility(
+    state: State<'_, Shared>,
+) -> Result<crate::access::AccessReport, String> {
+    let shared = (*state).clone();
+    crate::access::audit_all(&shared).await
+}
+
 /// The window handed a folder by drag and drop.
 #[tauri::command]
 pub fn dropped_path(app: AppHandle, path: String) {
