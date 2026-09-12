@@ -11,14 +11,16 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use notify::{RecursiveMode, Watcher};
-use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdMap};
+use notify_debouncer_full::{
+    new_debouncer_opt, DebounceEventResult, Debouncer, NoCache,
+};
 use tauri::{AppHandle, Emitter};
 
 use crate::project_file;
 
 /// Dropping this stops the watch.
 pub struct WatchHandle {
-    _debouncer: Debouncer<notify::RecommendedWatcher, FileIdMap>,
+    _debouncer: Debouncer<notify::RecommendedWatcher, NoCache>,
     pub root: PathBuf,
 }
 
@@ -39,7 +41,17 @@ pub fn start(app: AppHandle, root: &Path) -> Result<WatchHandle, String> {
 
     // Half a second is enough that an editor's save-and-format is one event,
     // and short enough that a deliberate edit feels immediate.
-    let mut debouncer = new_debouncer(
+    // `NoCache`, deliberately.
+    //
+    // The cached variant walks the entire project when the watch starts and
+    // stats every entry it finds, keeping the result for the life of the
+    // watch. On a Drupal project that is node_modules plus vendor plus
+    // web/core: hundreds of thousands of stats, seconds of disk work on a
+    // worker thread, and tens of megabytes held for as long as the project is
+    // open. It walks again every time a directory appears, so a `npm install`
+    // or a build does it repeatedly. All of that exists to stitch rename
+    // events together, and `classify` does not care about renames.
+    let mut debouncer = new_debouncer_opt::<_, notify::RecommendedWatcher, NoCache>(
         Duration::from_millis(500),
         None,
         move |result: DebounceEventResult| {
@@ -72,6 +84,8 @@ pub fn start(app: AppHandle, root: &Path) -> Result<WatchHandle, String> {
                 );
             }
         },
+        NoCache,
+        notify::Config::default(),
     )
     .map_err(|e| e.to_string())?;
 
@@ -79,7 +93,6 @@ pub fn start(app: AppHandle, root: &Path) -> Result<WatchHandle, String> {
         .watcher()
         .watch(root, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
-    debouncer.cache().add_root(root, RecursiveMode::Recursive);
 
     Ok(WatchHandle {
         _debouncer: debouncer,
@@ -96,14 +109,29 @@ enum Change {
 /// manager writing a lockfile. Only two categories are worth waking up for.
 fn classify(path: &Path) -> Option<Change> {
     let name = path.file_name()?.to_str()?;
-    let text = path.to_string_lossy();
 
-    for skip in [
-        "/node_modules/", "/.git/", "/dist/", "/build/", "/target/", "/vendor/",
-        "/.next/", "/coverage/", "/.cache/",
-    ] {
-        if text.contains(skip) {
-            return None;
+    // The same rules the scanner walks by, rather than a second list that
+    // drifts from it. Without `contrib` and Drupal's `core`, a `composer
+    // install` offered a rescan of thousands of files that CLAUDE.md is
+    // explicit are not the site; without the hidden-directory rule, a checkout
+    // in `.claude/worktrees` carries its own `breakpoints.md` and reloaded the
+    // panels from a copy of the repo.
+    // Directories only. The file's own name is not a directory name, and
+    // `.breakpoints.json` and `.lando.yml` are both files we very much want.
+    let parent = path.parent();
+    if let Some(parent) = parent {
+        for component in parent.components() {
+            let Some(name) = component.as_os_str().to_str() else { continue };
+            if crate::scanner::walk::SKIP_DIRS.contains(&name)
+                || crate::scanner::walk::skip_hidden(name)
+            {
+                return None;
+            }
+        }
+        for ancestor in parent.ancestors() {
+            if crate::scanner::walk::is_drupal_core(ancestor) {
+                return None;
+            }
         }
     }
 
@@ -169,5 +197,20 @@ mod tests {
         assert_eq!(kind("/p/dist/assets/main.css"), None);
         assert_eq!(kind("/p/src/vendor.min.css"), None);
         assert_eq!(kind("/p/src/main.ts"), None);
+    }
+
+    /// The watcher used to keep its own shorter list, so these three woke the
+    /// app up and offered a rescan of files that are not the site at all.
+    #[test]
+    fn it_skips_everything_the_scanner_skips() {
+        assert_eq!(kind("/p/web/core/themes/x/x.breakpoints.yml"), None, "Drupal core");
+        assert_eq!(kind("/p/web/modules/contrib/x/x.breakpoints.yml"), None, "contrib");
+        assert_eq!(
+            kind("/p/.claude/worktrees/copy/breakpoints.md"),
+            None,
+            "a second checkout of the same repo"
+        );
+        // And a hidden directory that is deliberately not skipped.
+        assert_eq!(kind("/p/.ddev/config.yaml"), Some("config"));
     }
 }

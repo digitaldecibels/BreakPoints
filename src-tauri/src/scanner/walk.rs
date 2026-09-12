@@ -25,7 +25,7 @@ pub const TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Directories that never hold a project's own breakpoints and always hold
 /// thousands of files.
-const SKIP_DIRS: &[&str] = &[
+pub const SKIP_DIRS: &[&str] = &[
     "node_modules",
     "vendor",
     "dist",
@@ -51,13 +51,13 @@ const SKIP_DIRS: &[&str] = &[
 
 /// A hidden directory is tooling. The one exception is DDEV, whose config is
 /// the whole point of looking.
-fn skip_hidden(name: &str) -> bool {
+pub fn skip_hidden(name: &str) -> bool {
     name.starts_with('.') && name != ".ddev"
 }
 
 /// A Drupal docroot's `core` is Drupal itself: thousands of stylesheets and a
 /// pile of `*.breakpoints.yml` that belong to core, not to this site.
-fn is_drupal_core(path: &Path) -> bool {
+pub fn is_drupal_core(path: &Path) -> bool {
     if path.file_name().and_then(|n| n.to_str()) != Some("core") {
         return false;
     }

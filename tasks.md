@@ -133,7 +133,7 @@ are the paths that can quietly break it.
   the save to half a second after the last event and coalesce the layout to one
   per frame. Small.
 
-- [ ] **The file watcher walks the entire project, including node_modules.**
+- [x] **The file watcher walks the entire project, including node_modules.**
   `add_root` on the debouncer walks the whole tree and stats every entry with
   no skip list, keeping the result for the life of the watch. On a Drupal
   project that is vendor plus `web/core` plus node_modules, so hundreds of
