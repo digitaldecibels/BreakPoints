@@ -301,12 +301,31 @@ fn is_gesture(message: &serde_json::Value) -> bool {
     )
 }
 
-/// Remember the window's width, so nothing on a hot path has to ask for it.
-pub fn remember_window_width(app: &AppHandle, state: &Shared) {
+/// Remember the window's size, so nothing on a hot path has to ask for it.
+///
+/// Asking sends a message to the main thread and blocks until it answers, with
+/// no timeout, which is the last thing a per-frame path should do against a
+/// main thread laying out seven pages.
+pub fn remember_window_size(app: &AppHandle, state: &Shared) {
     let Some(window) = app.get_window("main") else { return };
     let Ok(size) = window.inner_size() else { return };
     let scale = window.scale_factor().unwrap_or(1.0);
     *state.window_width.lock().unwrap() = size.width as f64 / scale;
+    *state.window_height.lock().unwrap() = size.height as f64 / scale;
+}
+
+/// The height a panel may use, from the remembered window size.
+pub fn available_height_cached(app: &AppHandle, state: &Shared) -> f64 {
+    let cached = *state.window_height.lock().unwrap();
+    if cached <= 0.0 {
+        remember_window_size(app, state);
+        let cached = *state.window_height.lock().unwrap();
+        if cached <= 0.0 {
+            return 600.0;
+        }
+        return (cached - PANEL_TOP - BOTTOM_MARGIN - STRIP_H).max(120.0);
+    }
+    (cached - PANEL_TOP - BOTTOM_MARGIN - STRIP_H).max(120.0)
 }
 
 /// Whether a panel is on screen, or close enough to be about to be.
@@ -330,16 +349,6 @@ pub fn panel_on_screen(home_x: f64, width: f64, scroll_x: f64, window_width: f64
     left + width > -MARGIN && left < window_width + MARGIN
 }
 
-pub fn available_height(app: &AppHandle) -> f64 {
-    let Some(window) = app.get_window("main") else {
-        return 600.0;
-    };
-    let Ok(size) = window.inner_size() else {
-        return 600.0;
-    };
-    let scale = window.scale_factor().unwrap_or(1.0);
-    ((size.height as f64 / scale) - PANEL_TOP - BOTTOM_MARGIN - STRIP_H).max(120.0)
-}
 
 /// Injected into every panel at document start, on every navigation.
 ///
@@ -841,7 +850,8 @@ pub async fn spawn(
         let canvas = state.canvas.lock().unwrap();
         (canvas.zoom_to_fit, canvas.fit_mode, canvas.full_height)
     };
-    let (places, total) = layout(&viewports, available_height(app), zoom_to_fit, fit_mode, full_height);
+    let (places, total) =
+        layout(&viewports, available_height_cached(app, state), zoom_to_fit, fit_mode, full_height);
 
     // The row is emptied first and then filled in one panel at a time, because
     // a page can finish loading and report in before the last panel has even
@@ -992,7 +1002,7 @@ pub async fn spawn(
 /// resize and whenever zoom-to-fit changes, so no panel is ever respawned just
 /// to change its scale.
 pub fn relayout(app: &AppHandle, state: &Shared) {
-    let avail = available_height(app);
+    let avail = available_height_cached(app, state);
     let mut canvas = state.canvas.lock().unwrap();
     let viewports: Vec<Viewport> = canvas.panels.iter().map(|p| p.viewport.clone()).collect();
     let (places, total) = layout(&viewports, avail, canvas.zoom_to_fit, canvas.fit_mode, canvas.full_height);

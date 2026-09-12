@@ -123,7 +123,7 @@ are the paths that can quietly break it.
   measuring how a page performs. Only scroll and wheel messages should refresh
   it, which is a filter over the drained array. Small, high value.
 
-- [ ] **A window resize writes the whole config to disk every frame.**
+- [x] **A window resize writes the whole config to disk every frame.**
   `WindowEvent::Resized` runs on the main thread and calls `remember_window`,
   which serialises every project record and every profile to a temp file and
   renames it, and macOS delivers that event continuously while you drag. The
@@ -183,6 +183,18 @@ are the paths that can quietly break it.
   disappears. Small.
 
 ### Small fixes worth taking
+
+- [ ] **The window does not open where it was left.** Found on 12 September
+  2026 while working on the resize path, not looked for. The config records
+  `{x: 61, y: 32, width: 5059, height: 1331}`, the display is 5120 by 1440
+  logical, and the window opens at 1400 by 872, which is the builder's default.
+  Walking `fits_on_a_screen` by hand against those numbers returns true, so
+  either `available_monitors()` is failing, in which case that function returns
+  false for everything and the remembered geometry can never be used, or macOS
+  is refusing the size and nothing notices. The saved value is right and the
+  restore is what is broken. It matters more than it looks: the window is
+  deliberately opened unfocused and in its remembered place so it never lands
+  in front of what someone is doing.
 
 - [ ] **A typo in the URL bar blanks the whole row.** `util::normalize_url`
   returns `about:blank` for anything the parser rejects, with no error channel,

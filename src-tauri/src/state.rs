@@ -136,6 +136,15 @@ pub struct AppState {
     /// Where injected scripts call home. Set once at startup.
     pub endpoint: OnceLock<Endpoint>,
 
+    /// Counts resize events, so the config write that follows one can wait
+    /// for the drag to stop.
+    pub resize_seq: Mutex<u64>,
+    /// True while a relayout is already scheduled, so a drag produces one per
+    /// frame rather than one per event.
+    pub relayout_pending: Mutex<bool>,
+    /// The main window's logical height, cached for the same reason as the
+    /// width.
+    pub window_height: Mutex<f64>,
     /// The main window's logical width, kept up to date from the resize
     /// handler.
     ///

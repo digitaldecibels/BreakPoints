@@ -194,9 +194,44 @@ pub fn run() {
             let resize_state = shared.clone();
             window.on_window_event(move |event| match event {
                 WindowEvent::Resized(_) => {
-                    canvas::remember_window_width(&resize_handle, &resize_state);
-                    canvas::relayout(&resize_handle, &resize_state);
-                    remember_window(&resize_handle, &resize_state);
+                    // macOS sends this continuously while the window is being
+                    // dragged, and this handler runs on the main thread. Doing
+                    // the work here meant, every frame, serialising the whole
+                    // config to a temp file and renaming it, plus 21 inline
+                    // webview calls and seven page re-layouts. So the size is
+                    // recorded now and both of those are paced.
+                    canvas::remember_window_size(&resize_handle, &resize_state);
+
+                    // At most one layout per frame, and always one after the
+                    // last event.
+                    let already_scheduled = {
+                        let mut pending = resize_state.relayout_pending.lock().unwrap();
+                        std::mem::replace(&mut *pending, true)
+                    };
+                    if !already_scheduled {
+                        let handle = resize_handle.clone();
+                        let state = resize_state.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+                            *state.relayout_pending.lock().unwrap() = false;
+                            canvas::relayout(&handle, &state);
+                        });
+                    }
+
+                    // The config is written once, when the drag stops.
+                    let seq = {
+                        let mut seq = resize_state.resize_seq.lock().unwrap();
+                        *seq = seq.wrapping_add(1);
+                        *seq
+                    };
+                    let handle = resize_handle.clone();
+                    let state = resize_state.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        if *state.resize_seq.lock().unwrap() == seq {
+                            remember_window(&handle, &state);
+                        }
+                    });
                 }
                 WindowEvent::Moved(_) => {
                     remember_window(&resize_handle, &resize_state);
