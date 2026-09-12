@@ -51,6 +51,14 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
 
     // v4: the breakpoints are in CSS, so look for the import and the @theme.
     for rel in index.by_extension(&["css"]) {
+        // The deadline is checked here as well as in the walk. This detector
+        // runs first and reads the whole stylesheet corpus, so it is the one
+        // most likely to blow the budget and it was the one that could not see
+        // it. On a network volume that is how a scan hangs.
+        if index.out_of_time() {
+            log.skip(&rel.to_string_lossy(), "scan timeout reached before this file");
+            break;
+        }
         let name = rel.to_string_lossy().to_string();
         // Anything already compiled is output, not source, and a hidden
         // directory is tooling: Tailwind's own probe writes a CSS file that
@@ -100,6 +108,10 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
 /// The version range from package.json, reduced to a major.
 fn declared_version(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Option<String> {
     for rel in index.by_name("package.json") {
+        if index.out_of_time() {
+            log.skip(&rel.to_string_lossy(), "scan timeout reached before this file");
+            break;
+        }
         // Only the project's own manifest, not one nested in a package.
         if rel.components().count() > 1 {
             continue;

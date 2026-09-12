@@ -281,7 +281,7 @@ are the paths that can quietly break it.
   would make both paths at least once. Medium. Signing and notarising the app
   was considered alongside this and deliberately left out.
 
-- [ ] **The scan deadline is only enforced in two of five detectors.** The walk
+- [x] **The scan deadline is only enforced in two of five detectors.** The walk
   and the CSS detector both check `index.out_of_time()`; the Tailwind, Drupal
   and dev server detectors never do. Since Tailwind runs first and reads the
   entire stylesheet corpus, the detector most likely to blow the ten second

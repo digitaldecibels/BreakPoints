@@ -17,6 +17,12 @@ pub const AUTO_USE: f64 = 0.85;
 
 pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> DetectorOutput {
     let mut out = DetectorOutput::default();
+    // Cheap, and this runs last, so once the deadline has passed there is
+    // nothing to be gained by reading more files.
+    if index.out_of_time() {
+        log.note("scan timeout reached, so dev server detection was skipped");
+        return out;
+    }
     let mut push = |candidate: DevServerDiscovery, log: &mut ScanLog| {
         log.candidate(&candidate.url, &candidate.source, candidate.confidence);
         out.dev_servers.push(candidate);

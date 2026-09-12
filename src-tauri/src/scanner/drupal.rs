@@ -33,6 +33,10 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     let mut themes = Vec::new();
 
     for rel in files {
+        if index.out_of_time() {
+            log.skip(&rel.to_string_lossy(), "scan timeout reached before this file");
+            break;
+        }
         let file = rel.to_string_lossy().to_string();
         let Some(text) = budget.read(index, rel, log) else { continue };
         let docs = match YamlLoader::load_from_str(&text) {
@@ -128,6 +132,10 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
 /// sub-tree and a docroot can be named either of two things.
 fn looks_like_drupal(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Option<String> {
     for rel in index.by_name("composer.json") {
+        if index.out_of_time() {
+            log.skip(&rel.to_string_lossy(), "scan timeout reached before this file");
+            break;
+        }
         if rel.components().count() > 1 {
             continue;
         }
