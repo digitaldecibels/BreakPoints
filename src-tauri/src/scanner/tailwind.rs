@@ -50,6 +50,9 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     }
 
     // v4: the breakpoints are in CSS, so look for the import and the @theme.
+    let mut declared_in: Vec<(String, String)> = Vec::new();
+    let mut imported_by: Option<String> = None;
+
     for rel in index.by_extension(&["css"]) {
         // The deadline is checked here as well as in the walk. This detector
         // runs first and reads the whole stylesheet corpus, so it is the one
@@ -74,10 +77,36 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
             log.skip(&name, "one enormous line, so it is a compiled bundle rather than source");
             continue;
         }
-        if !text.contains("tailwindcss") {
-            continue;
+        // Every stylesheet is looked at for `--breakpoint-*`, not only ones
+        // that mention the framework.
+        //
+        // The documented v4 layout is an entry stylesheet that imports
+        // tailwindcss and a separate theme file holding the block. The theme
+        // file never mentions the framework, so requiring the marker skipped
+        // it, and the entry file was then read as importing tailwindcss while
+        // declaring nothing, which made the app report Tailwind's stock five
+        // widths as if the project had chosen them.
+        if text.contains("--breakpoint-") {
+            declared_in.push((name.clone(), text.clone()));
         }
-        if let Some(detection) = parse_v4(&text, &name, log) {
+        if imports_tailwind(&text) && imported_by.is_none() {
+            imported_by = Some(name.clone());
+        }
+    }
+
+    // Declarations anywhere win. Only if there are none does importing the
+    // framework mean the defaults are in force.
+    if let Some((file, text)) = declared_in.first() {
+        if let Some(detection) = parse_v4(text, file, log) {
+            found_any = true;
+            out.breakpoints.extend(detection.breakpoints.clone());
+            out.frameworks.push(detection);
+        }
+        for (other, _) in declared_in.iter().skip(1) {
+            log.note(format!("{other} also declares --breakpoint-* properties"));
+        }
+    } else if let Some(file) = &imported_by {
+        if let Some(detection) = parse_v4("", file, log) {
             found_any = true;
             out.breakpoints.extend(detection.breakpoints.clone());
             out.frameworks.push(detection);
@@ -181,11 +210,14 @@ fn parse_v3(
     let mut breakpoints = Vec::new();
     let mut extends = false;
     let mut resolved_any = false;
+    // Whether a `theme.screens` that replaces the defaults was actually read.
+    let mut replaced_defaults = false;
 
     for (colon, inside_extend) in sites {
         match jsobj::object_after_colon(&blanked, colon) {
             Some(open) => {
                 extends |= inside_extend;
+                replaced_defaults |= !inside_extend;
                 resolved_any = true;
                 read_screens(&blanked, open, file, log, &mut breakpoints);
             }
@@ -237,7 +269,12 @@ fn parse_v3(
         log.note(format!("{file} has no readable theme.screens; Tailwind's defaults apply"));
     }
 
-    if extends || !resolved_any {
+    // `theme.screens` replaces the defaults; `theme.extend.screens` adds to
+    // whatever is in force. A config with both replaces and then adds, so the
+    // defaults are gone either way. Reading the extend flag alone put all five
+    // back, so a project that had deliberately cut down to three breakpoints
+    // was shown eight, five of which it does not have.
+    if (extends && !replaced_defaults) || !resolved_any {
         let named: Vec<String> = breakpoints
             .iter()
             .filter_map(|b: &BreakpointDiscovery| b.name.clone())
@@ -399,8 +436,14 @@ fn read_screens(
     }
 }
 
+/// Whether a stylesheet pulls the framework in.
+fn imports_tailwind(text: &str) -> bool {
+    text.contains("@import \"tailwindcss\"") || text.contains("@import 'tailwindcss'")
+}
+
+/// Read a `@theme` block, or hand back the defaults when there is nothing to
+/// read and the caller has established that the framework is in use.
 fn parse_v4(text: &str, file: &str, log: &mut ScanLog) -> Option<FrameworkDetection> {
-    let imports = text.contains("@import \"tailwindcss\"") || text.contains("@import 'tailwindcss'");
     let re = Regex::new(r"--breakpoint-([A-Za-z0-9_-]+)\s*:\s*([^;]+);").unwrap();
 
     let mut breakpoints = Vec::new();
@@ -424,13 +467,9 @@ fn parse_v4(text: &str, file: &str, log: &mut ScanLog) -> Option<FrameworkDetect
         }
     }
 
-    if breakpoints.is_empty() && !imports {
-        return None;
-    }
-
     if breakpoints.is_empty() {
         log.note(format!(
-            "{file} imports tailwindcss but declares no --breakpoint-* properties, so the v4 defaults apply"
+            "{file} imports tailwindcss and no stylesheet in the project declares --breakpoint-*, so the v4 defaults apply"
         ));
         for (name, width) in DEFAULT_SCREENS {
             breakpoints.push(BreakpointDiscovery {

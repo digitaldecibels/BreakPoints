@@ -311,7 +311,7 @@ are the paths that can quietly break it.
   names and lengths across the whole project, one to resolve. Medium, and it is
   the structural fix the two items below lean on.
 
-- [ ] **A Tailwind v4 theme in its own file is never opened.** `tailwind.rs:69`
+- [x] **A Tailwind v4 theme in its own file is never opened.** `tailwind.rs:69`
   skips any file that does not contain the string `tailwindcss`, and the
   documented v4 pattern is an entry stylesheet that imports both the framework
   and a separate theme file holding the `--breakpoint-*` block. The theme file
