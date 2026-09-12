@@ -36,6 +36,10 @@ pub struct Report {
     pub rect: serde_json::Value,
     pub note: String,
     pub at: u64,
+    /// Which agent session this note was addressed to, if one had claimed
+    /// reports when it was written. `None` means nobody had, and only the
+    /// chrome's copy button will ever collect it.
+    pub client: Option<String>,
 }
 
 /// One console line captured from a panel.
@@ -76,6 +80,15 @@ pub struct AppState {
     /// Problems reported from a panel, oldest first, waiting to be collected.
     pub reports: Mutex<Vec<Report>>,
 
+    /// The agent session notes are currently addressed to.
+    ///
+    /// Exactly one, and the last session to claim wins. Rick runs several
+    /// Claude Code sessions at once, and the old behaviour was that whichever
+    /// one asked first swallowed every note including the ones meant for
+    /// another. Addressing a note fixes that without asking a person to choose
+    /// a destination every time they write one.
+    pub report_owner: Mutex<Option<ClientSession>>,
+
     /// Where injected scripts call home. Set once at startup.
     pub endpoint: OnceLock<Endpoint>,
 
@@ -90,6 +103,20 @@ pub struct AppState {
 
     /// Keeps the debounced file watcher alive; dropping it stops watching.
     pub watcher: Mutex<Option<crate::watcher::WatchHandle>>,
+}
+
+/// An agent session that has claimed reports.
+///
+/// Claude Code hands every session a stable id in `CLAUDE_CODE_SESSION_ID`, so
+/// a session can name itself without the app inventing an identity for it. The
+/// name is for the toolbar; the id is what a note is addressed to.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientSession {
+    pub id: String,
+    pub name: String,
+    /// When it claimed. Only used to say "since 14:02" in the toolbar.
+    pub at: u64,
 }
 
 /// The loopback address injected scripts call, plus the nonce that proves a
@@ -131,8 +158,46 @@ impl AppState {
 
     /// Hand over everything and start again. Taking rather than reading is the
     /// default so the same note is not acted on twice.
+    ///
+    /// This is the chrome's copy button and the escape hatch: it collects every
+    /// note whoever it was addressed to, which is what makes a note written
+    /// while a dead session owned reports still reachable.
     pub fn take_reports(&self) -> Vec<Report> {
         std::mem::take(&mut *self.reports.lock().unwrap())
+    }
+
+    /// Hand over only the notes addressed to one session, and leave everyone
+    /// else's alone.
+    ///
+    /// This is what an agent calls. Several sessions poll at once, so a drain
+    /// that ignored the address would mean the fastest poller swallowed notes
+    /// meant for a different window.
+    pub fn take_reports_for(&self, client: &str) -> Vec<Report> {
+        let mut reports = self.reports.lock().unwrap();
+        let mut mine = Vec::new();
+        let mut theirs = Vec::new();
+        for report in std::mem::take(&mut *reports) {
+            if report.client.as_deref() == Some(client) {
+                mine.push(report);
+            } else {
+                theirs.push(report);
+            }
+        }
+        *reports = theirs;
+        mine
+    }
+
+    /// Claim reports for a session. The last one to ask wins, deliberately:
+    /// running the command in a window is how you say "send them here now".
+    pub fn claim_reports(&self, session: ClientSession) -> ClientSession {
+        let mut owner = self.report_owner.lock().unwrap();
+        *owner = Some(session.clone());
+        session
+    }
+
+    /// Which session notes are going to, if any.
+    pub fn report_owner(&self) -> Option<ClientSession> {
+        self.report_owner.lock().unwrap().clone()
     }
 
     pub fn clear_console(&self, panel: &str) {

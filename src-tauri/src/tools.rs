@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::canvas::{self, PanelInfo};
 use crate::model::Viewport;
@@ -74,6 +74,44 @@ pub async fn eval_js(state: &Shared, panel: &str, script: &str) -> Result<Value,
         .await
         .map_err(|_| format!("panel {id} did not answer within 10 seconds"))?
         .map_err(|_| "panel closed before it answered".to_string())?;
+
+    unwrap_envelope(&raw)
+}
+
+/// Run JavaScript in Break/Points' own chrome and hand back the value.
+///
+/// The twin of `eval_js`, for the one surface that was not reachable. Every
+/// page in a panel could be measured from outside the app while the toolbar,
+/// the label strip and the sheets could only be looked at, so a question like
+/// "where is the label strip actually drawn" had no answer that did not involve
+/// asking a person to read it off their own screen.
+///
+/// This is the app's own code, not somebody's page, so there is no nonce and no
+/// callback server: the chrome is a webview we built and serve.
+pub async fn eval_chrome(app: &AppHandle, script: &str) -> Result<Value, String> {
+    let chrome = app.get_webview("chrome").ok_or("no chrome webview")?;
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+
+    // Same envelope as `eval_js`, and for the same reason: a bare expression
+    // comes back as a doubly encoded string and a rejected promise comes back
+    // as an empty object.
+    let wrapped = format!(
+        "(function () {{ try {{ var value = (function () {{ {script} }})(); if (value && typeof value.then === \"function\") {{ return JSON.stringify({{ ok: false, error: \"eval_chrome cannot wait for a promise. Assign the result to a window property inside .then(), then read that property with a second call.\" }}); }} return JSON.stringify({{ ok: true, value: value }}); }} catch (e) {{ return JSON.stringify({{ ok: false, error: String((e && e.message) || e) }}); }} }})()"
+    );
+
+    let slot = Mutex::new(Some(tx));
+    chrome
+        .eval_with_callback(wrapped, move |result| {
+            if let Some(tx) = slot.lock().unwrap().take() {
+                let _ = tx.send(result);
+            }
+        })
+        .map_err(|e| e.to_string())?;
+
+    let raw = tokio::time::timeout(Duration::from_secs(10), rx)
+        .await
+        .map_err(|_| "the chrome did not answer within 10 seconds".to_string())?
+        .map_err(|_| "the chrome closed before it answered".to_string())?;
 
     unwrap_envelope(&raw)
 }

@@ -98,6 +98,14 @@ pub struct ProjectRecord {
     pub source_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub framework: Option<String>,
+    /// Where this project's screenshots are written. `None` means the user's
+    /// Downloads folder.
+    ///
+    /// Per project rather than app-wide, because a screenshot is evidence about
+    /// one site and filing all of them together makes them useless the moment
+    /// you are working on two.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shot_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +155,15 @@ pub struct AppConfig {
     /// the middle of whatever you are working on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowGeometry>,
+    /// Which browser "Open in browser" uses, by id. `None` means none has been
+    /// chosen and the first installed one wins.
+    ///
+    /// The panels themselves are not affected and cannot be: they are
+    /// WKWebViews because that is the only engine Tauri has on macOS. This
+    /// preference is only about where a page goes when you want somebody
+    /// else's devtools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<String>,
 }
 
 /// Position and size of the main window, in logical pixels.
@@ -204,6 +221,7 @@ impl Default for AppConfig {
             agent_bridge: false,
             bridge_token: None,
             window: None,
+            browser: None,
         }
     }
 }

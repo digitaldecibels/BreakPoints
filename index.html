@@ -27,6 +27,34 @@
         </div>
         <span class="sr-only" role="status" x-text="$store.bp.loadingCount ? `Loading ${$store.bp.loadingCount} of ${$store.bp.panels.length} panels` : ''"></span>
 
+        <!-- The wordmark, pinned to the window's left edge.
+
+             Absolutely positioned rather than placed in the flex row, because
+             the controls below are a centred group and a sibling in front of
+             them would push that group off centre by its own width. Out of
+             flow, the group stays centred and the wordmark stays at the edge,
+             which is the only arrangement where both are true.
+
+             It hides below 1460px. That is the width at which the centred
+             group, at its 1180px ceiling, would start colliding with it. A
+             wordmark is decoration and the window title already says the
+             name, so losing it on a narrow window costs nothing; overlapping
+             the project chip would cost plenty.
+
+             `pointer-events-none` so it can never eat a click meant for the
+             toolbar underneath. -->
+        <div
+          class="pointer-events-none absolute inset-y-0 left-4 hidden items-center min-[1460px]:flex"
+          aria-hidden="true"
+        >
+          <img
+            src="/breakpoints-wordmark.png"
+            alt=""
+            class="h-5 w-auto select-none opacity-90"
+            draggable="false"
+          />
+        </div>
+
         <!-- Everything in the toolbar is one centred group with a ceiling on
              its width. The window is often the full width of a very wide
              display, and a toolbar that stretches to fill it puts the buttons
@@ -137,6 +165,17 @@
         >
           Report
         </button>
+        <!-- Which session a note will be sent to. Absent until one claims,
+             because with nothing claimed the only collector is the copy
+             button beside it and saying "nobody" would be noise. -->
+        <span
+          x-show="$store.bp.reportOwner"
+          class="hidden shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-text-dim md:inline-flex"
+          :title="`Reports from this row are addressed to the ${$store.bp.reportOwner?.name} session. Running /run-breakpoints in another session moves them there.`"
+        >
+          <span class="text-text-faint">&rarr;</span>
+          <span class="max-w-32 truncate" x-text="$store.bp.reportOwner?.name"></span>
+        </span>
         <button
           type="button"
           x-show="$store.bp.reportCount"
@@ -162,6 +201,64 @@
         </button>
         </div>
       </header>
+
+      <!-- Inspect mode.
+
+           Opening the Web Inspector docks it into the panel's own webview and
+           gives that webview the whole window, so the rest of the row is behind
+           it and invisible. The mode hides the others rather than leaving them
+           stacked underneath, and this bar is the only sign that anything is
+           hidden, so it has to be somewhere a panel cannot cover. That is the
+           label strip band, same as the notice.
+
+           There is no event for the inspector closing, so this is the way out
+           and it has to be visible. Pressing Inspect again on the same panel
+           does the same thing. -->
+      <div
+        x-show="$store.bp.inspecting"
+        class="fixed left-6 z-20 flex items-center gap-2 rounded-sm border border-accent bg-chrome-raised px-2.5 py-1 text-[12px] text-text-dim"
+        :style="`top:${$store.bp.labelTop + 4}px`"
+      >
+        <span>
+          Inspecting
+          <span class="font-medium text-text" x-text="$store.bp.panels.find(p => p.id === $store.bp.inspecting)?.name ?? ''"></span>.
+          The rest of the row is hidden.
+        </span>
+        <button
+          type="button"
+          class="rounded-sm border border-line px-2 py-0.5 text-[11px] font-medium text-text hover:bg-chrome"
+          @click="$store.bp.stopInspecting()"
+        >
+          Show the row
+        </button>
+      </div>
+
+      <!-- Notices.
+           
+           Two constraints pull in opposite directions and this position is the
+           only one that satisfies both.
+
+           With no sheet open, a panel composites above everything the chrome
+           draws, so the only place a notice can be seen is the label strip
+           band. Hence `top` from the metrics contract rather than a number
+           picked to look right.
+
+           With a sheet open the panels are hidden, but the sheet lays a scrim
+           over the whole window at `z-10`. This used to live inside the label
+           strip and so was drawn underneath that scrim, which meant every
+           confirmation a sheet produced was invisible: pressing "Write
+           breakpoints.md" wrote the file and said so somewhere nobody could
+           see, and read as a dead button. `z-20` puts it over the scrim.
+
+           `pointer-events-none` so it can never take a click from whatever it
+           is floating over. -->
+      <div
+        x-show="$store.bp.notice"
+        class="pointer-events-none fixed right-6 z-20 max-w-[420px] truncate rounded-sm border border-line bg-chrome-raised px-2.5 py-1 text-[12px] text-text-dim"
+        :style="`top:${$store.bp.labelTop + 4}px`"
+        x-text="$store.bp.notice"
+        role="status"
+      ></div>
 
       <!-- The code moved. A question, not an instruction, so nothing changes
            until it is answered. -->
@@ -206,7 +303,8 @@
                   </div>
                   <div class="truncate font-mono text-[10px] leading-[13px] tracking-[0.02em] text-text-dim" x-text="meta(panel)"></div>
                 </div>
-                <!-- Hover reveals two ghost buttons and nothing else moves. -->
+                <!-- Hover reveals the ghost buttons and nothing else moves.
+                     Reload, screenshot, inspect, and open in a browser. -->
                 <div class="flex gap-1 opacity-0 transition-opacity duration-[120ms] group-hover:opacity-100">
                   <button type="button" class="grid h-5 w-5 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim" @click="$store.bp.reloadPanel(panel.id)" :aria-label="`Reload the ${panel.name} panel`">
                     <span class="h-2.5 w-2.5" x-icon="'reload'"></span>
@@ -214,20 +312,21 @@
                   <button type="button" class="grid h-5 w-5 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim" @click="$store.bp.screenshot(panel.id)" :aria-label="`Screenshot the ${panel.name} panel`">
                     <span class="h-2.5 w-2.5" x-icon="'camera'"></span>
                   </button>
-                  <button type="button" class="grid h-5 w-5 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim" @click="$store.bp.inspect(panel.id)" :aria-label="`Inspect the ${panel.name} panel`" :title="`Inspect ${panel.name} in the Web Inspector`">
+                  <button type="button" class="grid h-5 w-5 place-items-center rounded-sm border bg-chrome-raised" :class="$store.bp.inspecting === panel.id ? 'border-accent text-accent' : 'border-line text-text-dim'" :aria-pressed="$store.bp.inspecting === panel.id" @click="$store.bp.inspect(panel.id)" :aria-label="`Inspect the ${panel.name} panel`" :title="$store.bp.inspecting === panel.id ? `Stop inspecting ${panel.name} and show the row` : `Inspect ${panel.name} in the Web Inspector`">
                     <span class="h-2.5 w-2.5" x-icon="'inspect'"></span>
+                  </button>
+                  <!-- The escape hatch to somebody else's devtools. A panel is
+                       a WKWebView and always will be, so Chrome DevTools can
+                       never attach to one; this opens the same page in the
+                       browser you chose, at this panel's width, where its own
+                       tools do work. -->
+                  <button type="button" class="grid h-5 w-5 place-items-center rounded-sm border border-line bg-chrome-raised text-text-dim" @click="$store.bp.openInBrowser(panel.id)" :aria-label="`Open ${panel.name} in a browser`" :title="`Open ${panel.name} at ${Math.round(panel.width)}px in your browser`">
+                    <span class="h-2.5 w-2.5" x-icon="'go'"></span>
                   </button>
                 </div>
               </div>
             </template>
 
-            <!-- Notices sit at the right of this band, which is the only
-                 chrome that is never covered by a panel. -->
-            <div
-              x-show="$store.bp.notice"
-              class="absolute right-6 top-1 max-w-[420px] truncate rounded-sm border border-line bg-chrome-raised px-2.5 py-1 text-[12px] text-text-dim"
-              x-text="$store.bp.notice"
-            ></div>
           </div>
 
           <!-- A failed panel keeps its exact dimensions, because the size is
@@ -293,6 +392,7 @@
         x-show="$store.bp.sheet === 'scan'"
         class="fixed inset-0 z-10 flex items-center justify-center overflow-y-auto bg-scrim p-10"
         @keydown.escape.window="$store.bp.closeSheet()"
+        @click.self="$store.bp.closeSheet()"
       >
         <div
           class="bp-sheet-in my-auto w-[560px] shrink-0 rounded-sheet border border-line bg-chrome p-6"
@@ -434,13 +534,32 @@
         x-show="$store.bp.sheet === 'settings'"
         class="fixed inset-0 z-10 flex items-center justify-center overflow-y-auto bg-scrim p-10"
         @keydown.escape.window="$store.bp.closeSheet()"
+        @click.self="$store.bp.closeSheet()"
       >
         <div
-          class="bp-sheet-in my-auto flex w-[640px] shrink-0 rounded-sheet border border-line bg-chrome"
+          class="bp-sheet-in relative my-auto flex w-[640px] shrink-0 rounded-sheet border border-line bg-chrome"
           role="dialog"
           aria-label="Settings"
           x-data="settingsSheet"
         >
+          <!-- Escape alone is not a way out. The report box is built with four,
+               on the principle that a box you cannot see a way out of is a trap
+               however many keys happen to dismiss it, and this sheet had one and
+               no sign of it. Now it has three: this control, clicking the scrim,
+               and Escape.
+
+               Absolutely positioned so it sits over the content column's own
+               padding rather than taking a row from it, which would push every
+               tab's heading down to make room for a control that belongs to the
+               sheet and not to any one tab. -->
+          <button
+            type="button"
+            class="absolute right-3 top-3 z-10 grid h-6 w-6 place-items-center rounded-sm text-text-faint hover:bg-chrome-raised hover:text-text"
+            @click="$store.bp.closeSheet()"
+            aria-label="Close settings"
+          >
+            <span class="h-3 w-3" x-icon="'close'"></span>
+          </button>
           <nav class="w-40 shrink-0 border-r border-line py-5">
             <template x-for="tab in tabs" :key="tab.id">
               <button
@@ -565,6 +684,23 @@
                 </label>
               </div>
 
+              <!-- Where screenshots land. Per project, because a screenshot is
+                   evidence about one site. The path is shown in full rather
+                   than as "default", since the whole reason this setting exists
+                   is that shots used to go somewhere nobody could find. -->
+              <div class="mt-5">
+                <div class="text-[12px] font-medium text-text-dim">Screenshots</div>
+                <div class="mt-1 flex items-center gap-2">
+                  <div class="min-w-0 flex-1 truncate font-mono text-[11px] text-text" x-text="$store.bp.shotDir" :title="$store.bp.shotDir"></div>
+                  <button type="button" class="h-6 shrink-0 rounded-sm border border-line bg-chrome-raised px-2 text-[11px] font-medium text-text" @click="$store.bp.chooseShotDir()">
+                    Change
+                  </button>
+                  <button type="button" class="h-6 shrink-0 rounded-sm border border-line bg-chrome-raised px-2 text-[11px] font-medium text-text-dim" @click="$store.bp.resetShotDir()" title="Back to your Downloads folder">
+                    Downloads
+                  </button>
+                </div>
+              </div>
+
               <!-- One line. Three buttons at their old labels needed 466px in a
                    438px column, so "Open another project" became "Change
                    project"; the sheet's own width is from the design and is
@@ -579,6 +715,46 @@
                 <button type="button" class="h-7 shrink-0 whitespace-nowrap rounded-sm border border-line bg-chrome-raised px-3 text-[12px] font-medium text-text" x-show="$store.bp.projectDriven" @click="openProjectFile">
                   Open breakpoints.md
                 </button>
+              </div>
+            </div>
+
+            <!-- General: settings that belong to the app rather than to
+                 whatever project happens to be open. Saved in the app's own
+                 config, so the choice follows you from project to project. -->
+            <div x-show="$store.bp.settingsTab === 'general'" class="text-[13px]">
+              <h2 class="text-[15px] font-semibold tracking-[-0.01em] text-text">General</h2>
+
+              <div class="mt-5 space-y-2">
+                <div class="flex items-center gap-3" x-show="browsers.length">
+                  <span class="w-40 shrink-0 text-[12px] font-medium text-text-dim">Open in browser</span>
+                  <select class="h-[26px] rounded-sm border border-line bg-chrome-raised px-2 text-[12px] text-text" x-model="browser" @change="savePreferences">
+                    <template x-for="option in browsers" :key="option.id">
+                      <option :value="option.id" x-text="option.name"></option>
+                    </template>
+                  </select>
+                  <!-- Safari takes no size on the command line, so it opens at
+                       whatever width it was last left at. Saying so beats
+                       letting somebody measure a Safari window and trust it. -->
+                  <span x-show="!browserCanSize" class="text-[11px] text-warn">
+                    opens at its own size
+                  </span>
+                </div>
+
+                <p class="text-[12px] leading-5 text-text-dim">
+                  The arrow on each panel's label opens that panel's page here,
+                  at the panel's width, so you can use that browser's own
+                  developer tools.
+                </p>
+
+                <!-- Said plainly, because it is the first thing anyone asks and
+                     there is no setting that would make it otherwise. -->
+                <p class="mt-3 border-t border-line pt-3 text-[12px] leading-5 text-text-faint">
+                  The Inspect button next to it is always WebKit's Web
+                  Inspector, and cannot be changed. A panel is a WKWebView,
+                  which is the only engine available on macOS, and Chrome
+                  DevTools has no way to attach to one. That is what this
+                  setting is for.
+                </p>
               </div>
             </div>
 

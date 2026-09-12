@@ -5,6 +5,7 @@
 
 import { api, listen } from "./api.js";
 import { folderName, panelState } from "./format.js";
+import { LABEL_TOP } from "./metrics.js";
 
 /** Scan rows arrive as their detectors finish; the sheet reveals them 60ms apart. */
 const ROW_STAGGER = 60;
@@ -32,6 +33,12 @@ export function registerStore(Alpine) {
     /** True while the strip is being moved to match a wheel pan Rust already did. */
     echoingScroll: false,
     panelTop: 132,
+    // Which panel's Web Inspector is open. While this is set the other panels
+    // are hidden, because the inspector docks into the window and takes it.
+    inspecting: null,
+    // Top of the label strip band. The notice is positioned against this, and
+    // it is the one horizontal band a panel never covers.
+    labelTop: LABEL_TOP,
     fitEnabled: true,
     syncEnabled: true,
     /** A link followed in one panel is followed in all of them. */
@@ -39,7 +46,13 @@ export function registerStore(Alpine) {
     /** Clicking in a panel describes an element instead of following a link. */
     picking: false,
     /** How many notes are waiting to be collected. */
+    // Where this project's screenshots land. Resolved by Rust, so it is a real
+    // path rather than "the default", and shown so nobody has to go looking.
+    shotDir: "",
     reportCount: 0,
+    // Which agent session notes are being addressed to, or null if none has
+    // claimed. Shown in the toolbar so it is never a guess where a note went.
+    reportOwner: null,
 
     // Sheets: "none", "scan" or "settings"
     sheet: "none",
@@ -111,6 +124,11 @@ export function registerStore(Alpine) {
       if (!snapshot) return;
       this.config = snapshot.config ?? {};
       this.bridge = snapshot.bridge ?? this.bridge;
+      // Read rather than defaulted: the chrome reloads, and an owner claimed
+      // before the reload is one whose `reports:owner` event this page never
+      // heard.
+      this.reportOwner = snapshot.reportOwner ?? null;
+      this.shotDir = snapshot.shotDir ?? this.shotDir;
       this.activeProfile = snapshot.config?.activeProfile ?? "default";
       this.absorbCanvas(snapshot.canvas);
       if (snapshot.project) {
@@ -130,6 +148,7 @@ export function registerStore(Alpine) {
       this.syncEnabled = canvas.scrollSync;
       this.followEnabled = canvas.followLinks ?? this.followEnabled;
       this.picking = canvas.picking ?? this.picking;
+      this.inspecting = canvas.inspecting ?? null;
       if (canvas.url && canvas.url !== "about:blank") {
         this.canvasUrl = canvas.url;
         // A panel finishing a load emits this, and a row of six emits it a
@@ -190,6 +209,10 @@ export function registerStore(Alpine) {
       listen("url:status", (event) => (this.urlStatus = event.payload));
       listen("canvas:notice", (event) => this.say(event.payload));
       listen("report:new", (event) => this.absorbReport(event.payload));
+      listen("reports:owner", (event) => {
+        this.reportOwner = event.payload;
+        this.say(`Reports are going to ${event.payload.name}.`);
+      });
       listen("bridge:status", (event) => (this.bridge = event.payload));
 
       listen("scan:row", (event) => this.queueRow(event.payload));
@@ -440,6 +463,40 @@ export function registerStore(Alpine) {
         } catch (error) {
           this.scan.logLines = [{ event: "note", message: error.message }];
         }
+      }
+    },
+
+    async chooseShotDir() {
+      try {
+        this.shotDir = await api.chooseShotDir();
+        this.say(`Screenshots go to ${this.shotDir}`);
+      } catch (error) {
+        this.say(error.message);
+      }
+    },
+
+    async resetShotDir() {
+      try {
+        this.shotDir = await api.resetShotDir();
+        this.say(`Screenshots go to ${this.shotDir}`);
+      } catch (error) {
+        this.say(error.message);
+      }
+    },
+
+    /** Put the row back after inspecting. Does not close the inspector: there
+     *  is no way to do that from here, and no way to be told it happened. */
+    async stopInspecting() {
+      await api.stopInspecting();
+    },
+
+    /** Hand a panel's page to a real browser, at that panel's width. */
+    async openInBrowser(panel) {
+      try {
+        const name = await api.openPanelInBrowser(panel);
+        this.say(`Opened in ${name}.`);
+      } catch (error) {
+        this.say(error.message);
       }
     },
 

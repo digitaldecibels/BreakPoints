@@ -36,7 +36,7 @@ pub async fn capture(
     let image = capture_window(app)?;
     let scale = window_scale(app);
     let cropped = crop(&image, &rect, scale)?;
-    write_png(app, &id, &name, cropped)
+    write_png(app, state, &id, &name, cropped)
 }
 
 /// The whole scroll height, captured a screenful at a time and stitched.
@@ -114,7 +114,7 @@ async fn capture_full_page(
     .await;
 
     let stitched = result?;
-    let path = write_png(app, id, &format!("{name}-full"), stitched)?;
+    let path = write_png(app, state, id, &format!("{name}-full"), stitched)?;
     if truncated {
         eprintln!(
             "[breakpoints] {id} is taller than {MAX_TILES} screens; the shot stops there"
@@ -314,8 +314,14 @@ fn crop(image: &RgbaImage, rect: &Rect, scale: f64) -> Result<RgbaImage, String>
     Ok(out)
 }
 
-fn write_png(app: &AppHandle, id: &str, name: &str, image: RgbaImage) -> Result<String, String> {
-    let dir = config::shot_dir(app)?;
+fn write_png(
+    app: &AppHandle,
+    state: &Shared,
+    id: &str,
+    name: &str,
+    image: RgbaImage,
+) -> Result<String, String> {
+    let dir = config::shot_dir(app, state)?;
     let file = dir.join(format!(
         "{}-{}-{}.png",
         util::slugify(name),

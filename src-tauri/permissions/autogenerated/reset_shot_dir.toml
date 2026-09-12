@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reset-shot-dir"
+description = "Enables the reset_shot_dir command without any pre-configured scope."
+commands.allow = ["reset_shot_dir"]
+
+[[permission]]
+identifier = "deny-reset-shot-dir"
+description = "Denies the reset_shot_dir command without any pre-configured scope."
+commands.deny = ["reset_shot_dir"]

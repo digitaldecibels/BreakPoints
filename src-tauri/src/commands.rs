@@ -9,6 +9,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+use crate::browser;
 use crate::canvas::{self, CanvasInfo};
 use crate::model::{AppConfig, FitMode, HeightStrategy, Profile, Viewport};
 use crate::state::Shared;
@@ -22,6 +23,14 @@ pub struct Snapshot {
     pub canvas: CanvasInfo,
     pub project: ProjectInfo,
     pub bridge: bridge::Status,
+    /// Where this project's screenshots are written, resolved. Carried here
+    /// rather than in `ProjectInfo` because it has a value even with no project
+    /// open, when it is the Downloads folder.
+    pub shot_dir: String,
+    /// Which agent session notes are addressed to. Carried here as well as
+    /// emitted on `reports:owner`, because the chrome reloads and an event it
+    /// missed is an event it never hears about.
+    pub report_owner: Option<crate::state::ClientSession>,
 }
 
 #[tauri::command]
@@ -33,13 +42,71 @@ pub fn app_state(app: AppHandle, state: State<'_, Shared>) -> Snapshot {
     let canvas = canvas::info(&state);
     let project = tools::get_project_info(&state);
     let bridge = bridge::status(&app, &state);
+    let report_owner = state.report_owner();
+    let shot_dir = config::shot_dir(&app, &state)
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
 
     Snapshot {
         config,
         canvas,
         project,
         bridge,
+        report_owner,
+        shot_dir,
     }
+}
+
+/// Pick a folder for this project's screenshots.
+///
+/// Per project on purpose. A screenshot is evidence about one site, and filing
+/// every project's into one folder makes them useless the moment you have two
+/// open in a week.
+#[tauri::command]
+pub async fn choose_shot_dir(app: AppHandle, state: State<'_, Shared>) -> Result<String, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Where should this project's screenshots go?")
+        .pick_folder(move |picked| {
+            let _ = tx.send(picked.map(|p| p.to_string()));
+        });
+
+    let Some(chosen) = rx.await.ok().flatten() else {
+        // Cancelled. Report what it still is rather than an error.
+        return config::shot_dir(&app, &state).map(|d| d.to_string_lossy().to_string());
+    };
+
+    set_project_shot_dir(&app, &state, Some(chosen))
+}
+
+/// Put this project's screenshots back in the Downloads folder.
+#[tauri::command]
+pub fn reset_shot_dir(app: AppHandle, state: State<'_, Shared>) -> Result<String, String> {
+    set_project_shot_dir(&app, &state, None)
+}
+
+/// Write the choice against the open project and report where shots now go.
+fn set_project_shot_dir(
+    app: &AppHandle,
+    state: &Shared,
+    dir: Option<String>,
+) -> Result<String, String> {
+    let key = state
+        .project
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|p| p.root.to_string_lossy().to_string())
+        .ok_or("open a project first: the folder is remembered per project")?;
+
+    {
+        let mut config = state.config.lock().unwrap();
+        config.projects.entry(key).or_default().shot_dir = dir;
+        let _ = config::save(app, &config);
+    }
+
+    config::shot_dir(app, state).map(|d| d.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -129,9 +196,103 @@ pub fn take_reports(state: State<'_, Shared>) -> Vec<crate::state::Report> {
 }
 
 #[tauri::command]
-pub fn inspect_panel(state: State<'_, Shared>, panel: String) -> Result<(), String> {
+pub fn inspect_panel(app: AppHandle, state: State<'_, Shared>, panel: String) -> Result<(), String> {
     let id = canvas::resolve_id(&state, &panel).unwrap_or(panel);
-    canvas::inspect_panel(&state, &id)
+
+    // Pressing Inspect on the panel already being inspected leaves the mode.
+    // The inspector itself cannot be closed from here, but the row coming back
+    // is the part that was in the way.
+    if state.canvas.lock().unwrap().inspecting.as_deref() == Some(id.as_str()) {
+        canvas::set_inspecting(&app, &state, None);
+        return Ok(());
+    }
+
+    canvas::inspect_panel(&app, &state, &id)
+}
+
+/// Leave the inspect mode and put the row back.
+#[tauri::command]
+pub fn stop_inspecting(app: AppHandle, state: State<'_, Shared>) {
+    canvas::set_inspecting(&app, &state, None);
+}
+
+/// Open one panel's page in a real browser, at that panel's width.
+///
+/// The counterpart to Inspect, and the honest answer to "can I use Chrome
+/// DevTools on a panel". You cannot: a panel is a WKWebView and Chrome DevTools
+/// speaks a protocol it does not. So the page goes to Chrome instead, at the
+/// same width, and you use Chrome's tools there.
+#[tauri::command]
+pub fn open_panel_in_browser(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    panel: String,
+) -> Result<String, String> {
+    let chosen = state.config.lock().unwrap().browser.clone();
+    let browser = chosen
+        .as_deref()
+        .and_then(browser::Browser::from_id)
+        .filter(|b| b.installed())
+        .or_else(|| browser::installed().first().copied())
+        .ok_or("no browser found in /Applications")?;
+
+    // `resolve_id` takes the canvas lock itself, so it has to finish before the
+    // block below takes it again. Calling it inside would deadlock against
+    // itself, which is the same trap the `Snapshot` comment above describes.
+    let id = canvas::resolve_id(&state, &panel).ok_or("no such panel")?;
+
+    // Read the panel out under its own lock and drop it before launching. A
+    // process spawn while holding the canvas lock would block every scroll and
+    // callback for as long as the launch took.
+    let (url, width, height) = {
+        let canvas = state.canvas.lock().unwrap();
+        let target = canvas
+            .panels
+            .iter()
+            .find(|p| p.viewport.id == id)
+            .ok_or("no such panel")?;
+        // The declared width, never the on-screen one. A zoomed panel is drawn
+        // smaller but the page inside it is at the breakpoint, and the
+        // breakpoint is what the browser has to be opened at.
+        (
+            canvas.url.clone(),
+            target.viewport.width,
+            target.viewport.height,
+        )
+    };
+
+    let profile_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("browser-profiles");
+
+    browser::open(browser, &url, width, height, &profile_root)?;
+    Ok(browser.app_name().to_string())
+}
+
+/// Which browsers are installed, for the settings list.
+#[tauri::command]
+pub fn list_browsers(state: State<'_, Shared>) -> Value {
+    let chosen = state.config.lock().unwrap().browser.clone();
+    let installed = browser::installed();
+    let active = chosen
+        .as_deref()
+        .and_then(browser::Browser::from_id)
+        .filter(|b| b.installed())
+        .or_else(|| installed.first().copied());
+
+    serde_json::json!({
+        "browsers": installed
+            .iter()
+            .map(|b| serde_json::json!({
+                "id": b.id(),
+                "name": b.app_name(),
+                "canSize": b.can_size(),
+            }))
+            .collect::<Vec<_>>(),
+        "active": active.map(|b| b.id()),
+    })
 }
 
 /// The Web Inspector on Break/Points' own chrome, for when the app itself is
@@ -230,6 +391,9 @@ pub struct Preferences {
     pub fixed_height: Option<f64>,
     pub fit_mode: Option<FitMode>,
     pub edge_testing: Option<bool>,
+    /// Browser id for "Open in browser". Only this preference does not touch
+    /// the layout, so it is the one that does not need a relayout after.
+    pub browser: Option<String>,
 }
 
 #[tauri::command]
@@ -248,6 +412,9 @@ pub fn set_preferences(app: AppHandle, state: State<'_, Shared>, prefs: Preferen
         }
         if let Some(value) = prefs.edge_testing {
             config.edge_testing = value;
+        }
+        if let Some(value) = prefs.browser {
+            config.browser = Some(value);
         }
         let _ = config::save(&app, &config);
         config.clone()

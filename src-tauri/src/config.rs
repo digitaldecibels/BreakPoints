@@ -7,6 +7,8 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
 
+use crate::state::Shared;
+
 use crate::model::AppConfig;
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -61,12 +63,41 @@ pub fn scan_log_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Where cropped panel screenshots go: `<app data>/shots/`.
-pub fn shot_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("no data directory: {e}"))?
-        .join("shots");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+pub fn shot_dir(app: &AppHandle, state: &Shared) -> Result<PathBuf, String> {
+    // The open project's own folder wins, then Downloads. Screenshots used to
+    // go to the app's data directory, which is somewhere nobody can find
+    // without being told the path, and a screenshot you cannot find is not
+    // evidence of anything.
+    let chosen = {
+        let config = state.config.lock().unwrap();
+        state
+            .project
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|p| p.root.to_string_lossy().to_string())
+            .and_then(|key| config.projects.get(&key).and_then(|r| r.shot_dir.clone()))
+    };
+
+    let dir = match chosen {
+        Some(path) => PathBuf::from(path),
+        None => downloads_dir(app)?,
+    };
+
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("could not write to {}: {e}", dir.display()))?;
     Ok(dir)
+}
+
+/// The user's Downloads folder, with the app's own data directory as a last
+/// resort. `app_data_dir` is always available; Downloads is not, if the platform
+/// has no such concept or the lookup fails.
+pub fn downloads_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(dir) = app.path().download_dir() {
+        return Ok(dir);
+    }
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("shots"))
+        .map_err(|e| format!("no data directory: {e}"))
 }

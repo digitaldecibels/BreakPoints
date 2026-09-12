@@ -8,6 +8,7 @@
 
 pub mod audit;
 pub mod bridge;
+pub mod browser;
 pub mod callback;
 pub mod canvas;
 pub mod commands;
@@ -190,6 +191,14 @@ pub fn run() {
                 // about to scroll a panel by hand.
                 WindowEvent::Focused(has_focus) => {
                     *resize_state.window_focused.lock().unwrap() = *has_focus;
+                    // Coming back is the cheapest signal that the Web Inspector
+                    // is done with a panel. It resizes whatever webview it
+                    // attaches to and never puts it back, so this is the moment
+                    // to undo that. Cheap, idempotent, and harmless on the many
+                    // focus events that have nothing to do with the inspector.
+                    if *has_focus {
+                        canvas::restore_frames(&resize_state);
+                    }
                 }
                 WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) => {
                     if let Some(path) = paths.iter().find(|p| p.is_dir()) {
@@ -243,7 +252,12 @@ pub fn run() {
             commands::set_picking,
             commands::take_reports,
             commands::inspect_panel,
+            commands::stop_inspecting,
             commands::inspect_chrome,
+            commands::open_panel_in_browser,
+            commands::list_browsers,
+            commands::choose_shot_dir,
+            commands::reset_shot_dir,
             commands::set_sheet_open,
             commands::relayout,
             commands::choose_project,

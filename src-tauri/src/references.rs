@@ -110,7 +110,7 @@ pub async fn diff(app: &AppHandle, state: &Shared, panel: &str) -> Result<Value,
     let (difference, changed) = difference_image(&live, &comp);
     let total = (live.width() * live.height()) as f64;
 
-    let dir = config::shot_dir(app)?;
+    let dir = config::shot_dir(app, state)?;
     let diff_path = dir.join(format!("diff-{}-{}.png", util::slugify(&id), util::now_ms()));
     difference
         .save_with_format(&diff_path, image::ImageFormat::Png)

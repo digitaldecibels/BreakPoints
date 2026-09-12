@@ -121,6 +121,7 @@ Alpine.data("settingsSheet", () => ({
   tabs: [
     { id: "viewports", label: "Viewports" },
     { id: "project", label: "Project" },
+    { id: "general", label: "General" },
     { id: "bridge", label: "Agent bridge" },
     { id: "about", label: "About" },
   ],
@@ -130,8 +131,31 @@ Alpine.data("settingsSheet", () => ({
   fixedHeight: 900,
   edgeTesting: false,
   uniformFit: false,
+  // What is actually in /Applications, asked for rather than assumed. Offering
+  // a browser that is not installed fails at the moment of use instead of at
+  // the moment of choosing.
+  browsers: [],
+  browser: null,
 
   init() {
+    this.seed();
+
+    // The sheet is hidden with `x-show`, which leaves it in the DOM, so this
+    // component is created once at page load and never again. At that moment
+    // `boot()` has not resolved and the store holds no panels yet, so seeding
+    // only in `init` left the Viewports tab permanently empty: it captured an
+    // empty list before the row existed and nothing ever went back for it.
+    //
+    // Re-seed every time the sheet opens instead. That also fixes the same
+    // staleness in the preferences below it, which were reading a config that
+    // had not loaded either.
+    this.$watch("$store.bp.sheet", (sheet) => {
+      if (sheet === "settings") this.seed();
+    });
+  },
+
+  /** Fill the form from the app's current state. Safe to call repeatedly. */
+  seed() {
     const store = Alpine.store("bp");
     this.rows = store.panels.length
       ? store.panels.map((panel) => ({
@@ -148,6 +172,16 @@ Alpine.data("settingsSheet", () => ({
     this.fixedHeight = store.config.fixedHeight ?? 900;
     this.edgeTesting = store.config.edgeTesting ?? false;
     this.uniformFit = store.config.fitMode === "uniform";
+
+    api.listBrowsers().then((found) => {
+      this.browsers = found.browsers ?? [];
+      this.browser = found.active ?? null;
+    });
+  },
+
+  /** Whether the chosen browser can be told what width to open at. */
+  get browserCanSize() {
+    return this.browsers.find((b) => b.id === this.browser)?.canSize ?? true;
   },
 
   get detectedSummary() {
@@ -204,6 +238,7 @@ Alpine.data("settingsSheet", () => ({
       fixedHeight: this.fixedHeight,
       edgeTesting: this.edgeTesting,
       fitMode: this.uniformFit ? "uniform" : "height",
+      browser: this.browser,
     });
   },
 

@@ -279,6 +279,10 @@ fn report(app: &AppHandle, state: &Shared, nonce: &str, msg: ReportIn) {
         rect: msg.rect.clone(),
         note: truncate(&msg.note, 4000),
         at: util::now_ms(),
+        // Addressed at the moment it is written, not at the moment it is
+        // collected. Switching sessions after writing a note should not
+        // redirect the note.
+        client: state.report_owner().map(|owner| owner.id),
     };
     state.push_report(report.clone());
     let _ = app.emit("report:new", &report);

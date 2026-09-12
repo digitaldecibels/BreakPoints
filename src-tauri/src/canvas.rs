@@ -68,6 +68,12 @@ pub struct Canvas {
     /// True while a sheet is open. Panels are hidden so the chrome can draw
     /// over the canvas; child webviews always composite above it.
     pub panels_hidden: bool,
+    /// The panel whose Web Inspector is open, if any.
+    ///
+    /// Inspecting is a mode rather than a one-off action, because opening the
+    /// inspector does two things to the row that have to be undone together.
+    /// See `set_inspecting`.
+    pub inspecting: Option<String>,
 }
 
 impl Default for Canvas {
@@ -83,6 +89,7 @@ impl Default for Canvas {
             follow: Follow::default(),
             picking: false,
             panels_hidden: false,
+            inspecting: None,
         }
     }
 }
@@ -123,6 +130,9 @@ pub struct CanvasInfo {
     pub scroll_sync: bool,
     pub follow_links: bool,
     pub picking: bool,
+    /// Which panel is being inspected, so the chrome can say so and offer a
+    /// way out of the mode.
+    pub inspecting: Option<String>,
 }
 
 /// Where one panel sits, before any webview exists. Pure arithmetic so the
@@ -1214,11 +1224,125 @@ pub fn reload_all(state: &Shared) {
 ///
 /// This is WebKit's own inspector, in its own window, and it takes focus when it
 /// opens. There is no way to ask for it unfocused.
-pub fn inspect_panel(state: &Shared, id: &str) -> Result<(), String> {
-    let canvas = state.canvas.lock().unwrap();
-    let panel = find(&canvas, id).ok_or_else(|| format!("no panel called {id}"))?;
-    panel.webview.open_devtools();
+pub fn inspect_panel(app: &AppHandle, state: &Shared, id: &str) -> Result<(), String> {
+    {
+        let canvas = state.canvas.lock().unwrap();
+        let panel = find(&canvas, id).ok_or_else(|| format!("no panel called {id}"))?;
+        panel.webview.open_devtools();
+    }
+    set_inspecting(app, state, Some(id.to_string()));
     Ok(())
+}
+
+/// Enter or leave the inspect mode.
+///
+/// WHAT OPENING THE INSPECTOR ACTUALLY DOES
+///
+/// WebKit docks its inspector into the webview it is inspecting and takes that
+/// webview's frame for itself: the page ends up at the window's full width,
+/// with the inspector below it. On a 5120px display that means a 1024px panel
+/// renders its page at 5120px. It covers the chrome and every panel to its
+/// right, and the width on its label becomes a lie, which for this app is the
+/// worst failure available.
+///
+/// TWO THINGS, UNDONE TOGETHER
+///
+/// So the mode does two things. It hides every other panel, because the docked
+/// inspector has taken the window and a row of panels behind it is noise you
+/// cannot see anyway. And it keeps re-asserting the inspected panel's frame,
+/// because WebKit re-takes it: setting the size back does win and does stick,
+/// but only until the inspector next decides to lay itself out, so a one-shot
+/// restore loses a race it cannot see.
+///
+/// WHY LEAVING IS MANUAL
+///
+/// There is no way to be told the inspector has closed. WebKit offers no event
+/// and Tauri surfaces none, so nothing can notice it and put the row back.
+/// Hence a visible control in the chrome, and pressing Inspect again on the
+/// same panel toggles out. Guessing from window focus was the alternative and
+/// it is worse: you click between the inspector and the page constantly while
+/// using it, and each of those would rebuild the row underneath you.
+pub fn set_inspecting(app: &AppHandle, state: &Shared, id: Option<String>) {
+    {
+        let mut canvas = state.canvas.lock().unwrap();
+        if canvas.inspecting == id {
+            return;
+        }
+        canvas.inspecting = id.clone();
+
+        // A sheet already hides everything; leave it alone and let closing it
+        // sort the row out, or the two would fight over the same webviews.
+        if !canvas.panels_hidden {
+            for panel in canvas.panels.iter() {
+                let failed = matches!(panel.state, PanelState::Failed(_));
+                let wanted = match &id {
+                    Some(only) => &panel.viewport.id == only,
+                    None => true,
+                };
+                let _ = if wanted && !failed {
+                    panel.webview.show()
+                } else {
+                    panel.webview.hide()
+                };
+            }
+        }
+    }
+
+    if id.is_none() {
+        relayout(app, state);
+        emit_canvas(app, state);
+        return;
+    }
+
+    // Hold the panel at its declared size for as long as the mode lasts. The
+    // task ends itself when the mode does, so entering the mode twice cannot
+    // leave two of them running.
+    let watch_state = state.clone();
+    let watched = id.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            let still = watch_state.canvas.lock().unwrap().inspecting.clone();
+            if still != watched {
+                break;
+            }
+            restore_frames(&watch_state);
+        }
+    });
+
+    emit_canvas(app, state);
+}
+
+/// Put every panel back at the position, size and zoom Rust already believes it
+/// has.
+///
+/// This recomputes nothing. `relayout` is for when the numbers themselves
+/// change; this is for when something outside the app has moved a webview
+/// behind our back, which in practice means the Web Inspector.
+pub fn restore_frames(state: &Shared) {
+    let canvas = state.canvas.lock().unwrap();
+    // A hidden panel is hidden because a sheet is open. Re-asserting its frame
+    // would put it back over the sheet.
+    if canvas.panels_hidden {
+        return;
+    }
+    let scroll_x = canvas.scroll_x;
+    for panel in canvas.panels.iter() {
+        // While one panel is being inspected the others are hidden, and putting
+        // a hidden webview back at its place would show it again.
+        if let Some(only) = &canvas.inspecting {
+            if &panel.viewport.id != only {
+                continue;
+            }
+        }
+        let _ = panel.webview.set_zoom(panel.scale);
+        let _ = panel
+            .webview
+            .set_position(LogicalPosition::new(panel.home_x - scroll_x, PANEL_TOP));
+        let _ = panel
+            .webview
+            .set_size(LogicalSize::new(panel.width, panel.height));
+    }
 }
 
 pub fn reload_panel(state: &Shared, id: &str) {
@@ -1344,6 +1468,7 @@ pub fn info(state: &Shared) -> CanvasInfo {
         scroll_sync: canvas.sync_on,
         follow_links: canvas.follow.on,
         picking: canvas.picking,
+        inspecting: canvas.inspecting.clone(),
     }
 }
 

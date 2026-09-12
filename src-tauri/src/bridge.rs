@@ -291,6 +291,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "get_references",
     "diff_panel",
     "take_reports",
+    "claim_reports",
+    "eval_chrome",
 ];
 
 /// Every tool, in one place. The chrome's commands call the same functions.
@@ -325,7 +327,37 @@ pub async fn call_tool(
             tools::eval_js(state, &panel, &script).await
         }
 
-        "take_reports" => Ok(json!(state.take_reports())),
+        "eval_chrome" => {
+            let script = string_arg(args, "script")?;
+            tools::eval_chrome(app, &script).await
+        }
+
+        "take_reports" => {
+            // Addressed if the caller says who it is, which is what
+            // `/run-breakpoints` sets up. Unaddressed keeps the old behaviour
+            // for a single session that never claimed anything.
+            let reports = match args.get("client").and_then(Value::as_str) {
+                Some(client) => state.take_reports_for(client),
+                None => state.take_reports(),
+            };
+            Ok(json!(reports))
+        }
+
+        "claim_reports" => {
+            let id = string_arg(args, "id")?;
+            let name = args
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(&id)
+                .to_string();
+            let session = state.claim_reports(crate::state::ClientSession {
+                id,
+                name,
+                at: crate::util::now_ms(),
+            });
+            let _ = app.emit("reports:owner", &session);
+            Ok(json!(session))
+        }
 
         "get_console" => {
             let panel = string_arg(args, "panel")?;
@@ -618,8 +650,46 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "take_reports",
-            "description": "Problems a person marked in a panel by pointing at an element and describing what is wrong, each with the breakpoint width it happened at. This empties the list, so what comes back is only what has not been handled yet. Call it when asked about reported problems, notes, or what is broken.",
-            "inputSchema": schema(json!({}), &[]),
+            "description": "Problems a person marked in a panel by pointing at an element and describing what is wrong, each with the breakpoint width it happened at. This empties the list, so what comes back is only what has not been handled yet. Call it when asked about reported problems, notes, or what is broken. Pass the same `client` id you claimed with, or you will collect notes addressed to somebody else's session.",
+            "inputSchema": schema(
+                json!({
+                    "client": {
+                        "type": "string",
+                        "description": "The session id passed to claim_reports. Omit only if this is the one and only session using the app.",
+                    }
+                }),
+                &[],
+            ),
+        }),
+        json!({
+            "name": "eval_chrome",
+            "description": "Run JavaScript inside Break/Points' own interface, the toolbar and label strip and sheets, rather than inside a panel. Use it to measure the app's own layout when the app itself is what is misbehaving. Panels are eval_js; this is everything around them. The script is a function body, so it needs a return.",
+            "inputSchema": schema(
+                json!({
+                    "script": {
+                        "type": "string",
+                        "description": "A function body. Must `return` the value you want back.",
+                    }
+                }),
+                &["script"],
+            ),
+        }),
+        json!({
+            "name": "claim_reports",
+            "description": "Address every problem reported from now on to this agent session, so several sessions can use the app at once without collecting each other's notes. The last session to claim wins. Call it once at the start of a session, then pass the same id to take_reports.",
+            "inputSchema": schema(
+                json!({
+                    "id": {
+                        "type": "string",
+                        "description": "A stable id for this session. Claude Code puts one in CLAUDE_CODE_SESSION_ID.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "What to call this session in the toolbar, usually the project folder. Defaults to the id.",
+                    }
+                }),
+                &["id"],
+            ),
         }),
         json!({
             "name": "diff_panel",

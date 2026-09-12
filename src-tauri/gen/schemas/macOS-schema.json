@@ -381,6 +381,12 @@
           "markdownDescription": "Enables the choose_project command without any pre-configured scope."
         },
         {
+          "description": "Enables the choose_shot_dir command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-choose-shot-dir",
+          "markdownDescription": "Enables the choose_shot_dir command without any pre-configured scope."
+        },
+        {
           "description": "Enables the delete_profile command without any pre-configured scope.",
           "type": "string",
           "const": "allow-delete-profile",
@@ -411,6 +417,12 @@
           "markdownDescription": "Enables the inspect_panel command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_browsers command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-browsers",
+          "markdownDescription": "Enables the list_browsers command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_profiles command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-profiles",
@@ -421,6 +433,12 @@
           "type": "string",
           "const": "allow-navigate",
           "markdownDescription": "Enables the navigate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_panel_in_browser command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-panel-in-browser",
+          "markdownDescription": "Enables the open_panel_in_browser command without any pre-configured scope."
         },
         {
           "description": "Enables the open_project command without any pre-configured scope.",
@@ -469,6 +487,12 @@
           "type": "string",
           "const": "allow-rescan",
           "markdownDescription": "Enables the rescan command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reset_shot_dir command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reset-shot-dir",
+          "markdownDescription": "Enables the reset_shot_dir command without any pre-configured scope."
         },
         {
           "description": "Enables the save_profile command without any pre-configured scope.",
@@ -543,6 +567,12 @@
           "markdownDescription": "Enables the set_zoom_to_fit command without any pre-configured scope."
         },
         {
+          "description": "Enables the stop_inspecting command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stop-inspecting",
+          "markdownDescription": "Enables the stop_inspecting command without any pre-configured scope."
+        },
+        {
           "description": "Enables the take_reports command without any pre-configured scope.",
           "type": "string",
           "const": "allow-take-reports",
@@ -591,6 +621,12 @@
           "markdownDescription": "Denies the choose_project command without any pre-configured scope."
         },
         {
+          "description": "Denies the choose_shot_dir command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-choose-shot-dir",
+          "markdownDescription": "Denies the choose_shot_dir command without any pre-configured scope."
+        },
+        {
           "description": "Denies the delete_profile command without any pre-configured scope.",
           "type": "string",
           "const": "deny-delete-profile",
@@ -621,6 +657,12 @@
           "markdownDescription": "Denies the inspect_panel command without any pre-configured scope."
         },
         {
+          "description": "Denies the list_browsers command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-browsers",
+          "markdownDescription": "Denies the list_browsers command without any pre-configured scope."
+        },
+        {
           "description": "Denies the list_profiles command without any pre-configured scope.",
           "type": "string",
           "const": "deny-list-profiles",
@@ -631,6 +673,12 @@
           "type": "string",
           "const": "deny-navigate",
           "markdownDescription": "Denies the navigate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_panel_in_browser command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-panel-in-browser",
+          "markdownDescription": "Denies the open_panel_in_browser command without any pre-configured scope."
         },
         {
           "description": "Denies the open_project command without any pre-configured scope.",
@@ -679,6 +727,12 @@
           "type": "string",
           "const": "deny-rescan",
           "markdownDescription": "Denies the rescan command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reset_shot_dir command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reset-shot-dir",
+          "markdownDescription": "Denies the reset_shot_dir command without any pre-configured scope."
         },
         {
           "description": "Denies the save_profile command without any pre-configured scope.",
@@ -751,6 +805,12 @@
           "type": "string",
           "const": "deny-set-zoom-to-fit",
           "markdownDescription": "Denies the set_zoom_to_fit command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stop_inspecting command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stop-inspecting",
+          "markdownDescription": "Denies the stop_inspecting command without any pre-configured scope."
         },
         {
           "description": "Denies the take_reports command without any pre-configured scope.",
