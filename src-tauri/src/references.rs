@@ -187,7 +187,7 @@ fn resize_nearest(source: &RgbaImage, width: u32, height: u32) -> RgbaImage {
 }
 
 /// Red where the two differ by more than a threshold, faded original elsewhere.
-fn difference_image(live: &RgbaImage, comp: &RgbaImage) -> (RgbaImage, u64) {
+pub fn difference_image(live: &RgbaImage, comp: &RgbaImage) -> (RgbaImage, u64) {
     const THRESHOLD: i32 = 28;
     let mut out = RgbaImage::new(live.width(), live.height());
     let mut changed = 0u64;

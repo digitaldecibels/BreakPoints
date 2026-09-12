@@ -538,7 +538,14 @@ are the paths that can quietly break it.
   distinguishable: a note has a person's judgement in it and a console line
   does not.
 
-- [ ] **Before and after, across every width.** `references::diff` compares a
+- [x] **Before and after, across every width.** `take_baseline` photographs
+  every panel and keeps the pictures; `compare_to_baseline` photographs them
+  again and says which widths moved, writing a difference image for each one
+  that did. A size change counts as a change rather than being resized away,
+  and anything under a tenth of a percent is treated as compression noise.
+  Verified as far as this machine allows: every capture currently comes back
+  blank for want of screen recording permission, so what is proven is the
+  plumbing, the failure reporting and the missing-baseline path. The original: `references::diff` compares a
   panel against a static design reference. The same image comparison pointed at
   two captures of the same panel, before and after a change, would say which
   widths moved and which did not. This is the thing this app can do that a

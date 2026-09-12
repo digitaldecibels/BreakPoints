@@ -8,6 +8,7 @@
 
 pub mod access;
 pub mod audit;
+pub mod baseline;
 pub mod bridge;
 pub mod browser;
 pub mod callback;

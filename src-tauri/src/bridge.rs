@@ -519,6 +519,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "audit_all",
     "audit_accessibility",
     "verify_breakpoints",
+    "take_baseline",
+    "compare_to_baseline",
     "attach_reference",
     "get_references",
     "diff_panel",
@@ -578,6 +580,16 @@ pub async fn call_tool(
                 .unwrap_or_else(|| "0".to_string());
             let report = crate::verify::verify(state, &panel).await?;
             Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
+        }
+
+        "take_baseline" => {
+            let taken = crate::baseline::take(app, state).await?;
+            Ok(serde_json::to_value(taken).map_err(|e| e.to_string())?)
+        }
+
+        "compare_to_baseline" => {
+            let compared = crate::baseline::compare(app, state).await?;
+            Ok(serde_json::to_value(compared).map_err(|e| e.to_string())?)
         }
 
         "take_reports" => {
@@ -940,6 +952,16 @@ pub fn tool_definitions() -> Vec<Value> {
         json!({
             "name": "get_references",
             "description": "Which reference frame belongs to which panel.",
+            "inputSchema": schema(json!({}), &[]),
+        }),
+        json!({
+            "name": "take_baseline",
+            "description": "Photograph every panel and keep the pictures as the state to compare against. Take one before a change, then use compare_to_baseline after it to see which widths moved. This is the thing a row of panels can do that a browser cannot.",
+            "inputSchema": schema(json!({}), &[]),
+        }),
+        json!({
+            "name": "compare_to_baseline",
+            "description": "Photograph every panel again and say which widths changed since take_baseline. Answers 'did anything move here', width by width, so a fix that repairs one width and breaks another is visible immediately. Writes a difference image for each width that moved.",
             "inputSchema": schema(json!({}), &[]),
         }),
         json!({
