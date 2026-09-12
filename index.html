@@ -947,6 +947,10 @@
                   <input type="checkbox" x-model="uniformFit" @change="savePreferences" />
                   <span class="text-[12px] text-text-dim">One scale for every panel, so their sizes stay comparable</span>
                 </label>
+                <label class="flex items-center gap-3">
+                  <input type="checkbox" x-model="recheckOnChange" @change="savePreferences" />
+                  <span class="text-[12px] text-text-dim">Run the layout checks again when a stylesheet changes</span>
+                </label>
               </div>
 
               <!-- Where screenshots land. Per project, because a screenshot is

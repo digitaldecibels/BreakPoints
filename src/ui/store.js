@@ -237,6 +237,9 @@ export function registerStore(Alpine) {
         const panel = this.panels.find((p) => p.id === event.payload.panel);
         if (panel) panel.consoleErrors = (panel.consoleErrors ?? 0) + 1;
       });
+      // The layout checks, run again after a rebuild. Only ever a line in the
+      // notice band: it is information, not something to interrupt for.
+      listen("checks:done", (event) => this.say(event.payload));
       listen("url:status", (event) => (this.urlStatus = event.payload));
       listen("canvas:notice", (event) => this.say(event.payload));
       // How many notes are waiting, from the one place that knows. The chrome

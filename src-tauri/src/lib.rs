@@ -32,8 +32,8 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::{
-    webview::WebviewBuilder, DragDropEvent, Emitter, LogicalPosition, LogicalSize, Manager,
-    WebviewUrl, WindowEvent,
+    webview::WebviewBuilder, DragDropEvent, Emitter, Listener, LogicalPosition, LogicalSize,
+    Manager, WebviewUrl, WindowEvent,
 };
 
 use state::{AppState, Shared};
@@ -322,6 +322,54 @@ pub fn run() {
                 }
                 _ => {}
             });
+
+            // Re-run the layout checks after the project's stylesheets
+            // settle, when that has been asked for. The event the watcher
+            // already emits is the trigger; the wait is for the dev server to
+            // rebuild and the panels to catch up.
+            {
+                let handle = handle.clone();
+                let state = shared.clone();
+                handle.clone().listen_any("project:config-changed", move |_| {
+                    let wanted = state.config.lock().unwrap().recheck_on_change;
+                    eprintln!(
+                        "[breakpoints] the project's stylesheets changed; re-running the checks: {wanted}"
+                    );
+                    if !wanted {
+                        return;
+                    }
+                    let handle = handle.clone();
+                    let state = state.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        match audit::run(&handle, &state).await {
+                            Ok(report) => {
+                                // The audit counts findings by severity, so
+                                // say the numbers rather than that it finished.
+                                let count = |key: &str| {
+                                    report
+                                        .get("summary")
+                                        .and_then(|s| s.get(key))
+                                        .and_then(|v| v.as_u64())
+                                        .unwrap_or(0)
+                                };
+                                let (high, medium) = (count("high"), count("medium"));
+                                let line = if high == 0 && medium == 0 {
+                                    "Stylesheets changed. The layout checks found nothing.".to_string()
+                                } else {
+                                    format!(
+                                        "Stylesheets changed. The layout checks found {high} serious and {medium} worth a look."
+                                    )
+                                };
+                                let _ = handle.emit("checks:done", line);
+                            }
+                            Err(err) => {
+                                let _ = handle.emit("checks:done", format!("checks did not run: {err}"));
+                            }
+                        }
+                    });
+                });
+            }
 
             // The bridge is off by default. If it was on last time, it comes
             // back on, because that was a deliberate choice.

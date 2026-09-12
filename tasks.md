@@ -553,7 +553,7 @@ are the paths that can quietly break it.
   storing a baseline per panel and deciding what counts as a difference worth
   reporting.
 
-- [ ] **Re-run the checks when the dev server rebuilds.** `watcher.rs` already
+- [x] **Re-run the checks when the dev server rebuilds.** `watcher.rs` already
   debounces file changes and sorts them into two categories. Running
   `audit_all` or the accessibility checks on a rebuild would turn both from
   something you remember to do into something that tells you. Needs a way to

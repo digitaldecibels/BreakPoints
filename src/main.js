@@ -159,6 +159,7 @@ Alpine.data("settingsSheet", () => ({
   fixedHeight: 900,
   edgeTesting: false,
   uniformFit: false,
+  recheckOnChange: false,
   // What is actually in /Applications, asked for rather than assumed. Offering
   // a browser that is not installed fails at the moment of use instead of at
   // the moment of choosing.
@@ -215,6 +216,7 @@ Alpine.data("settingsSheet", () => ({
     this.fixedHeight = store.config.fixedHeight ?? 900;
     this.edgeTesting = store.config.edgeTesting ?? false;
     this.uniformFit = store.config.fitMode === "uniform";
+    this.recheckOnChange = store.config.recheckOnChange ?? false;
     this.reportPrompt = store.reportPrompt;
 
     api.listBrowsers().then((found) => {
@@ -316,6 +318,7 @@ Alpine.data("settingsSheet", () => ({
       fixedHeight: this.fixedHeight,
       edgeTesting: this.edgeTesting,
       fitMode: this.uniformFit ? "uniform" : "height",
+      recheckOnChange: this.recheckOnChange,
       browser: this.browser,
     });
   },

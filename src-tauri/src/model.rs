@@ -177,6 +177,13 @@ pub struct AppConfig {
     /// of how you work rather than something the app should decide.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report_prompt: Option<String>,
+    /// Run the layout checks again whenever the project's stylesheets change.
+    ///
+    /// Off by default. A rebuild every few seconds should not start an audit
+    /// every few seconds, and somebody in the middle of editing does not want
+    /// a notice every time they save.
+    #[serde(default)]
+    pub recheck_on_change: bool,
 }
 
 /// What travels with a note when nobody has written their own instruction.
@@ -241,6 +248,7 @@ impl Default for AppConfig {
             window: None,
             browser: None,
             report_prompt: None,
+            recheck_on_change: false,
         }
     }
 }

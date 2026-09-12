@@ -437,6 +437,8 @@ pub struct Preferences {
     pub fixed_height: Option<f64>,
     pub fit_mode: Option<FitMode>,
     pub edge_testing: Option<bool>,
+    /// Whether a stylesheet change should re-run the layout checks.
+    pub recheck_on_change: Option<bool>,
     /// Browser id for "Open in browser". Only this preference does not touch
     /// the layout, so it is the one that does not need a relayout after.
     pub browser: Option<String>,
@@ -465,6 +467,9 @@ pub fn set_preferences(app: AppHandle, state: State<'_, Shared>, prefs: Preferen
         }
         if let Some(value) = prefs.browser {
             config.browser = Some(value);
+        }
+        if let Some(value) = prefs.recheck_on_change {
+            config.recheck_on_change = value;
         }
         if let Some(value) = prefs.report_prompt {
             config.report_prompt = if value.trim().is_empty() {
