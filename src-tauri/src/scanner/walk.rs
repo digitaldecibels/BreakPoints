@@ -88,6 +88,12 @@ pub fn is_drupal_core(path: &Path) -> bool {
 
 /// The only files any detector asks for. Everything else is walked past.
 fn worth_keeping(path: &Path) -> bool {
+    is_config(path) || is_stylesheet(path) || is_template(path)
+}
+
+/// A file that configures the project. There are never many, and they are
+/// usually the answer, so these are never capped.
+pub fn is_config(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
@@ -115,7 +121,17 @@ fn worth_keeping(path: &Path) -> bool {
     ) {
         return true;
     }
-    is_stylesheet(path)
+    false
+}
+
+/// Markup that can use a breakpoint by name: a Tailwind variant prefix like
+/// `md:` or a mixin call. Read to find out which breakpoints a project
+/// actually leans on, never for widths of their own.
+pub fn is_template(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("twig") | Some("html") | Some("jsx") | Some("tsx") | Some("erb") | Some("blade")
+    )
 }
 
 /// A stylesheet, or a component that carries one.
@@ -174,7 +190,7 @@ impl FileIndex {
             })
             .build();
 
-        let mut stylesheets = 0usize;
+        let mut capped = 0usize;
         for entry in walker {
             seen += 1;
             if seen > MAX_ENTRIES {
@@ -212,14 +228,14 @@ impl FileIndex {
             // few directories, and the walk would stop before reaching the app
             // whose `tailwind.config.ts` was the whole point. Counting them
             // separately costs nothing and makes the answer deterministic.
-            if is_stylesheet(path) && stylesheets >= MAX_FILES {
-                log.skip("<walk>", "hit the 3000 stylesheet cap");
+            if !is_config(path) && capped >= MAX_FILES {
+                log.skip("<walk>", "hit the 3000 file cap for stylesheets and templates");
                 truncated = true;
                 break;
             }
             if let Ok(rel) = path.strip_prefix(root) {
-                if is_stylesheet(path) {
-                    stylesheets += 1;
+                if !is_config(path) {
+                    capped += 1;
                 }
                 files.push(rel.to_path_buf());
             }

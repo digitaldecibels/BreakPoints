@@ -479,7 +479,7 @@ are the paths that can quietly break it.
 
 ### Scanner: raising confidence in every width
 
-- [ ] **Confirm framework widths against real usage.** Index the templates and
+- [x] **Confirm framework widths against real usage.** Index the templates and
   components, `.twig`, `.html`, `.jsx`, `.tsx`, `.vue`, and count how often
   each breakpoint is actually referenced, through Tailwind variant prefixes or
   mixin calls. A default that appears in 400 class attributes is evidence; one

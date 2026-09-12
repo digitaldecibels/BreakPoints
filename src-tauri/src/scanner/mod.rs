@@ -15,7 +15,7 @@ pub mod types;
 pub mod units;
 pub mod walk;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -190,6 +190,14 @@ pub fn scan(root: &Path, mut on_row: impl FnMut(ScanRow)) -> ScanOutcome {
     warnings.extend(css_output.warnings);
     discarded.extend(css_output.discarded);
 
+    // How often the project actually uses each breakpoint it declares.
+    //
+    // A declared breakpoint is an intention; a breakpoint used in four hundred
+    // class attributes is a fact. Counting the uses turns a framework default
+    // from an assumption into a measurement, and gives the recommender a
+    // reason to check the widths a project leans on rather than all of them.
+    count_usage(&index, &mut budget, &mut breakpoints, &mut log);
+
     // Dev server.
     let at = std::time::Instant::now();
     log.detector_start("devserver");
@@ -359,6 +367,78 @@ fn merge(found: Vec<BreakpointDiscovery>, log: &mut ScanLog) -> (Vec<BreakpointD
 /// A conflict is two sources disagreeing about the same named breakpoint, or a
 /// stylesheet that lays out at a width close to but not the same as the one the
 /// framework declares. Both are worth a question, neither is worth a guess.
+/// Count how many templates refer to each named breakpoint.
+///
+/// Tailwind spells it as a variant prefix, `md:flex`, and Sass as a mixin
+/// argument, `@include media-breakpoint-up(md)`. Both name the breakpoint, and
+/// the names come from the project's own config, so a match is the project
+/// talking about its own breakpoint rather than a guess about what a word
+/// might mean.
+fn count_usage(
+    index: &FileIndex,
+    budget: &mut ReadBudget,
+    breakpoints: &mut [BreakpointDiscovery],
+    log: &mut ScanLog,
+) {
+    let named: Vec<String> = breakpoints
+        .iter()
+        .filter_map(|b| b.name.clone())
+        .filter(|name| !name.is_empty() && name.len() <= 12)
+        .collect();
+    if named.is_empty() {
+        return;
+    }
+
+    let templates: Vec<&std::path::PathBuf> = index
+        .files
+        .iter()
+        .filter(|rel| walk::is_template(rel))
+        .collect();
+    if templates.is_empty() {
+        return;
+    }
+
+    let mut uses: BTreeMap<String, usize> = BTreeMap::new();
+    let mut files: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut read = 0usize;
+
+    for rel in templates {
+        if index.out_of_time() {
+            break;
+        }
+        let Some(text) = budget.read(index, rel, log) else { continue };
+        read += 1;
+        let file = rel.to_string_lossy().to_string();
+        for name in &named {
+            // `md:` as a variant prefix, and `(md)` as a mixin argument.
+            let variant = format!("{name}:");
+            let argument = format!("({name})");
+            let count = text.matches(&variant).count() + text.matches(&argument).count();
+            if count > 0 {
+                *uses.entry(name.clone()).or_default() += count;
+                files.entry(name.clone()).or_default().insert(file.clone());
+            }
+        }
+    }
+
+    if read == 0 {
+        return;
+    }
+    for breakpoint in breakpoints.iter_mut() {
+        let Some(name) = &breakpoint.name else { continue };
+        let Some(count) = uses.get(name) else { continue };
+        let in_files = files.get(name).map(|f| f.len()).unwrap_or(0);
+        // Only ever raises the count. A width that appears in nine stylesheets
+        // and no template is still a width used in nine stylesheets.
+        if in_files > breakpoint.file_count {
+            breakpoint.file_count = in_files;
+        }
+        log.note(format!(
+            "{name} is used {count} times across {in_files} templates"
+        ));
+    }
+}
+
 fn find_conflicts(merged: &[BreakpointDiscovery], log: &mut ScanLog) -> Vec<Conflict> {
     let mut conflicts = Vec::new();
 
