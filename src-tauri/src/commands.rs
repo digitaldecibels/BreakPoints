@@ -137,7 +137,9 @@ pub async fn apply_viewports(
 
 #[tauri::command]
 pub fn navigate(app: AppHandle, state: State<'_, Shared>, url: String) -> Result<(), String> {
-    canvas::navigate_all(&state, &url);
+    // A refusal reaches the toolbar, which shows it in the notice band rather
+    // than sending the whole row to a blank page and calling it success.
+    canvas::navigate_all(&state, &url)?;
     {
         let mut config = state.config.lock().unwrap();
         config.last_url = Some(url.clone());

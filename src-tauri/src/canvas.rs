@@ -1227,8 +1227,8 @@ fn send_to(panel: &mut Panel, target: &url::Url, sheet_open: bool) {
     let _ = panel.webview.navigate(target.clone());
 }
 
-pub fn navigate_all(state: &Shared, url: &str) {
-    let target = crate::util::normalize_url(url);
+pub fn navigate_all(state: &Shared, url: &str) -> Result<(), String> {
+    let target = crate::util::parse_url(url)?;
     let mut canvas = state.canvas.lock().unwrap();
     canvas.url = target.to_string();
     let hidden = canvas.panels_hidden;
@@ -1240,6 +1240,7 @@ pub fn navigate_all(state: &Shared, url: &str) {
     // Every one of those panels is about to report in. Without this the first
     // report back reads as somebody clicking a link.
     canvas.follow.pushed(awaiting, Instant::now());
+    Ok(())
 }
 
 /// How long a pushed navigation is given to settle before a report counts as a

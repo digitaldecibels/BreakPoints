@@ -6,19 +6,46 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Accept what a person types in a URL bar. A bare host becomes https, because
 /// that is what a dev URL almost always is now; an explicit scheme is left
 /// alone so `http://localhost:5173` still works.
-pub fn normalize_url(input: &str) -> url::Url {
+/// The empty address: no page, and deliberately so.
+pub fn blank_url() -> url::Url {
+    url::Url::parse("about:blank").unwrap()
+}
+
+/// Turn what somebody typed into a URL, or say why it is not one.
+///
+/// It used to answer `about:blank` for anything the parser refused, with no
+/// way to tell that from success, so a pasted address with a space in it
+/// navigated every panel to nothing and the app reported that it had worked.
+/// The row vanished and the URL bar offered no clue.
+pub fn parse_url(input: &str) -> Result<url::Url, String> {
     let s = input.trim();
     if s.is_empty() {
-        return url::Url::parse("about:blank").unwrap();
+        return Ok(blank_url());
     }
     let full = if s.contains("://") {
         s.to_string()
-    } else if s.starts_with("localhost") || s.starts_with("127.0.0.1") {
+    } else if is_loopback_host(s) {
         format!("http://{s}")
     } else {
         format!("https://{s}")
     };
-    url::Url::parse(&full).unwrap_or_else(|_| url::Url::parse("about:blank").unwrap())
+    url::Url::parse(&full).map_err(|_| format!("\"{s}\" is not an address I can open"))
+}
+
+/// Whether a host is this machine.
+///
+/// `starts_with("localhost")` also matched `localhosting.example`, which was
+/// then given http and sent somewhere nobody meant.
+fn is_loopback_host(s: &str) -> bool {
+    let host = s.split(['/', '?', '#']).next().unwrap_or(s);
+    let host = host.split(':').next().unwrap_or(host);
+    host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host.ends_with(".localhost")
+}
+
+/// The old shape, for the callers where there is nothing useful to do with a
+/// refusal: fall back to the empty address rather than fail.
+pub fn normalize_url(input: &str) -> url::Url {
+    parse_url(input).unwrap_or_else(|_| blank_url())
 }
 
 pub fn now_ms() -> u64 {
@@ -179,6 +206,14 @@ mod tests {
     #[test]
     fn bare_hosts_become_https_and_localhost_stays_http() {
         assert_eq!(normalize_url("example.com").as_str(), "https://example.com/");
+        // A host that merely starts with the word is not this machine.
+        assert_eq!(
+            normalize_url("localhosting.example").as_str(),
+            "https://localhosting.example/"
+        );
+        assert!(parse_url("http:// not a url").is_err(), "a space is enough");
+        assert!(parse_url("").unwrap().as_str() == "about:blank", "empty is not an error");
+        assert!(parse_url("example.com").is_ok());
         assert_eq!(
             normalize_url("localhost:5173").as_str(),
             "http://localhost:5173/"

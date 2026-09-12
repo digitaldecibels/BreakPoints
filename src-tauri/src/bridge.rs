@@ -469,7 +469,7 @@ pub async fn call_tool(
 
         "navigate" => {
             let url = string_arg(args, "url")?;
-            canvas::navigate_all(state, &url);
+            canvas::navigate_all(state, &url)?;
             canvas::emit_canvas(app, state);
             let status = project::probe(&url).await;
             *state.url_status.lock().unwrap() = status.clone();

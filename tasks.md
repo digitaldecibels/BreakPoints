@@ -213,7 +213,7 @@ are the paths that can quietly break it.
   deliberately opened unfocused and in its remembered place so it never lands
   in front of what someone is doing.
 
-- [ ] **A typo in the URL bar blanks the whole row.** `util::normalize_url`
+- [x] **A typo in the URL bar blanks the whole row.** `util::normalize_url`
   returns `about:blank` for anything the parser rejects, with no error channel,
   and a pasted space is enough. Every panel then navigates to nothing, the row
   is gone, and the app reports success. The bridge's `navigate` tool has the

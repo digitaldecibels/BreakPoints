@@ -412,7 +412,14 @@ export function registerStore(Alpine) {
       if (!this.hasPanels) {
         await this.applyViewports(this.config.profiles?.[this.activeProfile]?.viewports ?? []);
       }
-      await api.navigate(this.url);
+      try {
+        await api.navigate(this.url);
+      } catch (error) {
+        // An address that will not parse used to send every panel to a blank
+        // page and report success, so the row vanished and the box gave no
+        // clue why.
+        this.say(error.message);
+      }
     },
 
     reloadAll: () => api.reloadAll(),
