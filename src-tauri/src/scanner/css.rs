@@ -299,7 +299,8 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                 .or_default() += containers;
         }
 
-        for (query, offset) in media_preludes(text) {
+        for (query, offset, brace) in media_blocks(text) {
+            let weight = block_size(text, brace);
             let resolved = substitute_maps(&substitute(&query, &variables), &project_maps);
             let hits = widths_in_query(&resolved);
             if hits.is_empty() {
@@ -352,11 +353,13 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                     first_file: file.clone(),
                     first_line: line,
                     occurrences: 0,
+                    weight: 0,
                     name: None,
                     declared: false,
                 });
                 entry.files.insert(file.clone());
                 entry.occurrences += 1;
+                entry.weight += weight;
                 if hit.edge == Edge::Min {
                     entry.edge = Edge::Min;
                 }
@@ -380,6 +383,7 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                 first_file: file.clone(),
                 first_line: 1,
                 occurrences: 0,
+                weight: 0,
                 name: Some(key.clone()),
                 declared: true,
             });
@@ -398,6 +402,7 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
                 first_file: file.clone(),
                 first_line: line,
                 occurrences: 0,
+                weight: 0,
                 name: None,
                 declared: false,
             });
@@ -447,6 +452,8 @@ struct Occurrence {
     first_file: String,
     first_line: usize,
     occurrences: usize,
+    /// Bytes of rules written inside this width's blocks, across every file.
+    weight: usize,
     /// The name the project gave this width, when it gave it one.
     name: Option<String>,
     /// True when the width came from a declared map of breakpoints rather than
@@ -484,6 +491,7 @@ pub fn in_hidden_directory(rel: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn media_preludes(css: &str) -> Vec<(String, usize)> {
     let re = Regex::new(r"@media([^{;]*)\{").unwrap();
     re.captures_iter(css)
@@ -492,6 +500,47 @@ fn media_preludes(css: &str) -> Vec<(String, usize)> {
             (m.as_str().to_string(), m.start())
         })
         .collect()
+}
+
+/// The same, plus where each block's opening brace is.
+fn media_blocks(css: &str) -> Vec<(String, usize, usize)> {
+    let re = Regex::new(r"@media([^{;]*)\{").unwrap();
+    re.captures_iter(css)
+        .map(|caps| {
+            let prelude = caps.get(1).unwrap();
+            let brace = caps.get(0).unwrap().end() - 1;
+            (prelude.as_str().to_string(), prelude.start(), brace)
+        })
+        .collect()
+}
+
+/// How many bytes of rules sit inside the block that starts at `open`.
+///
+/// A breakpoint with four kilobytes of rules behind it is a layout decision; a
+/// breakpoint with a single `display: none` is a tweak. Counting how many
+/// files mention a width cannot tell those apart, and this can.
+///
+/// Braces are counted rather than parsed. A brace inside a string would throw
+/// it off, which in a media block is vanishingly rare, and the answer is only
+/// ever used to rank one width against another.
+fn block_size(css: &str, open: usize) -> usize {
+    let bytes = css.as_bytes();
+    let mut depth = 0usize;
+    let mut i = open;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return i - open;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    bytes.len() - open
 }
 
 /// `$tablet: 768px;` and `$tablet: 48rem;`, defined at the top level of the
@@ -586,9 +635,11 @@ fn cluster(mut found: Vec<Occurrence>, log: &mut ScanLog) -> Vec<BreakpointDisco
         let representative = pick_representative(&group);
         let mut files = BTreeSet::new();
         let mut occurrences = 0;
+        let mut weight = 0usize;
         for occurrence in &group {
             files.extend(occurrence.files.iter().cloned());
             occurrences += occurrence.occurrences;
+            weight += occurrence.weight;
             if occurrence.width != representative {
                 log.discarded(
                     &occurrence.first_file,
@@ -624,10 +675,22 @@ fn cluster(mut found: Vec<Occurrence>, log: &mut ScanLog) -> Vec<BreakpointDisco
             // once is probably a tweak. That is the whole confidence signal,
             // and it does not apply to a width somebody wrote down on purpose
             // in a map of breakpoints: that one was chosen, not observed.
+            // How many files mention a width says how widely it is used; how
+            // much CSS sits behind it says how much was decided there. A
+            // breakpoint with kilobytes of rules is a layout decision, one
+            // with a single line is a tweak, and counting files alone cannot
+            // tell them apart.
             confidence: if declared {
                 0.9
             } else {
-                (0.3 + 0.1 * files.len() as f64).min(0.85)
+                let spread = 0.1 * files.len() as f64;
+                let substance = match weight {
+                    0..=200 => 0.0,
+                    201..=1000 => 0.05,
+                    1001..=4000 => 0.1,
+                    _ => 0.15,
+                };
+                (0.3 + spread + substance).min(0.85)
             },
             kind: if declared { Kind::Configured } else { Kind::Css },
             edge: first.edge,
@@ -669,6 +732,26 @@ fn pick_representative(group: &[Occurrence]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// How much was decided at a width, which counting files cannot tell you.
+    #[test]
+    fn a_block_is_measured_from_its_braces() {
+        let css = "@media (min-width: 900px) {\n  .a { display: grid; }\n}\n@media (min-width: 1100px) { .b { display: none; } }";
+        let blocks = media_blocks(css);
+        assert_eq!(blocks.len(), 2);
+        let layout = block_size(css, blocks[0].2);
+        let tweak = block_size(css, blocks[1].2);
+        assert!(layout > tweak, "{layout} should be more than {tweak}");
+        assert!(tweak > 0);
+    }
+
+    /// An unclosed block runs to the end of the file rather than panicking.
+    #[test]
+    fn an_unclosed_block_is_measured_to_the_end() {
+        let css = "@media (min-width: 900px) { .a { color: red; }";
+        let blocks = media_blocks(css);
+        assert!(block_size(css, blocks[0].2) > 0);
+    }
 
     /// A query inside a comment is not a breakpoint, and it used to be counted
     /// as one, which inflated the only confidence signal this detector has.
@@ -778,6 +861,7 @@ mod tests {
                     first_file: "a.css".into(),
                     first_line: 1,
                     occurrences: 0,
+                    weight: 0,
                     name: None,
                     declared: false,
                 });

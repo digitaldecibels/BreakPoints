@@ -490,7 +490,7 @@ are the paths that can quietly break it.
   needs in order to stop preferring guessed defaults. Medium, and the best of
   the three bets.
 
-- [ ] **Rank by how much CSS sits behind a width.** Confidence today is how
+- [x] **Rank by how much CSS sits behind a width.** Confidence today is how
   many files mention a width. A breakpoint with four kilobytes of rules behind
   it is a layout decision; one with a single `display: none` is a tweak. The
   prelude parser already returns where each query starts, so matching its
