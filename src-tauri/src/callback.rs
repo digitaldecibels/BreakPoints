@@ -301,6 +301,7 @@ fn report(app: &AppHandle, state: &Shared, nonce: &str, msg: ReportIn) {
             .clone()
             .unwrap_or_else(|| crate::model::DEFAULT_REPORT_PROMPT.to_string()),
         text: String::new(),
+        image: String::new(),
     };
     // Written once, here, so the clipboard, the bridge and a watching session
     // all hand over the same words.
@@ -308,6 +309,30 @@ fn report(app: &AppHandle, state: &Shared, nonce: &str, msg: ReportIn) {
     state.push_report(report.clone());
     let _ = app.emit("report:new", &report);
     crate::tools::emit_report_count(app, state);
+
+    // The picture is taken after the note is queued, not before, so a capture
+    // that fails or takes a second cannot delay or lose the note itself. When
+    // it arrives the note is updated in place.
+    let app_for_shot = app.clone();
+    let state_for_shot = state.clone();
+    let panel = msg.panel.clone();
+    let selector = report.selector.clone();
+    let id = report.id.clone();
+    tauri::async_runtime::spawn(async move {
+        if selector.is_empty() {
+            return;
+        }
+        match crate::shots::capture_element(&app_for_shot, &state_for_shot, &panel, &selector).await
+        {
+            Ok(path) => {
+                state_for_shot.attach_image(&id, &path);
+                crate::tools::emit_report_count(&app_for_shot, &state_for_shot);
+            }
+            Err(err) => {
+                eprintln!("[breakpoints] no picture for the note on {selector}: {err}");
+            }
+        }
+    });
 }
 
 fn wheel(app: &AppHandle, state: &Shared, nonce: &str, msg: Wheel) {

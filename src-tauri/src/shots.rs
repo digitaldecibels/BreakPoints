@@ -351,6 +351,87 @@ fn crop(image: &RgbaImage, rect: &Rect, scale: f64) -> Result<RgbaImage, String>
     Ok(image::imageops::crop_imm(image, x, y, width, height).to_image())
 }
 
+/// Capture just the element a note points at.
+///
+/// A note already carries the element's rectangle in the page's own
+/// coordinates, and this module already crops a window capture to a panel
+/// rectangle. Joining the two makes a note self-contained, so whoever reads it
+/// sees the thing rather than a selector.
+///
+/// The rectangle is in CSS pixels relative to the document, so it is scrolled
+/// into view first, then converted: page pixels times the panel's zoom, offset
+/// by where the panel sits on screen.
+pub async fn capture_element(
+    app: &AppHandle,
+    state: &Shared,
+    id: &str,
+    selector: &str,
+) -> Result<String, String> {
+    if let Some(reason) = canvas::cannot_measure(state, Some(id)) {
+        return Err(reason);
+    }
+    let (panel_rect, name) = bring_into_view(app, state, id).await?;
+
+    // Asked of the page rather than taken from the note, because the note's
+    // rectangle was measured before anything scrolled and the page may have
+    // moved since.
+    let measured = crate::tools::eval_js(
+        state,
+        id,
+        &format!(
+            "var el = document.querySelector({});\n\
+             if (!el) return null;\n\
+             el.scrollIntoView({{ block: 'center', inline: 'nearest' }});\n\
+             var r = el.getBoundingClientRect();\n\
+             return {{ x: r.left, y: r.top, w: r.width, h: r.height, zoom: 1 }};",
+            serde_json::to_string(selector).unwrap_or_else(|_| "\"\"".into())
+        ),
+    )
+    .await?;
+
+    if measured.is_null() {
+        return Err(format!("{selector} is not on the page any more"));
+    }
+    let get = |key: &str| measured.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    if get("w") < 1.0 || get("h") < 1.0 {
+        return Err(format!("{selector} has no size on screen, so there is nothing to capture"));
+    }
+
+    // Let the scroll land before the pixels are read.
+    tokio::time::sleep(std::time::Duration::from_millis(180)).await;
+
+    let zoom = {
+        let canvas = state.canvas.lock().unwrap();
+        canvas
+            .panels
+            .iter()
+            .find(|p| p.viewport.id == id)
+            .map(|p| p.scale)
+            .unwrap_or(1.0)
+    };
+
+    // A little room around it, so the element is seen in its context rather
+    // than cut out of it.
+    const PADDING: f64 = 12.0;
+    let rect = Rect {
+        x: panel_rect.x + get("x") * zoom - PADDING,
+        y: panel_rect.y + get("y") * zoom - PADDING,
+        width: get("w") * zoom + PADDING * 2.0,
+        height: get("h") * zoom + PADDING * 2.0,
+    };
+
+    let image = capture_window(app)?;
+    let scale = window_scale(app);
+    let cropped = crop(&image, &rect, scale)?;
+    if looks_blank(&cropped) {
+        return Err(format!(
+            "the capture of {selector} in {name} is a single flat colour. See the note on \
+             screen recording permission in `capture`."
+        ));
+    }
+    write_png(app, state, id, &format!("{name}-element"), cropped)
+}
+
 fn write_png(
     app: &AppHandle,
     state: &Shared,

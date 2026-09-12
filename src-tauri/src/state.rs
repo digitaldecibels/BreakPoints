@@ -48,6 +48,13 @@ pub struct Report {
     /// when it is collected, so editing it later does not rewrite the meaning
     /// of notes already sitting in the queue.
     pub prompt: String,
+    /// A picture of the element, when one could be taken.
+    ///
+    /// A selector tells you where to look; a picture tells you what was wrong.
+    /// Empty when the capture failed, which on macOS usually means screen
+    /// recording permission has not been granted.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub image: String,
     /// The note as prose, built once here rather than by whoever collects it.
     ///
     /// This used to be assembled in the chrome's JavaScript for the clipboard
@@ -86,6 +93,9 @@ impl Report {
             self.selector,
             self.url,
         ));
+        if !self.image.is_empty() {
+            out.push_str(&format!("\nPicture: {}", self.image));
+        }
         out
     }
 }
@@ -321,6 +331,23 @@ impl AppState {
         self.persist_reports();
     }
 
+    /// Attach a picture to a note that is already queued.
+    ///
+    /// The capture happens after the note is stored, so the note is never
+    /// delayed by it, and a note that has already been collected is simply not
+    /// found here.
+    pub fn attach_image(&self, id: &str, path: &str) {
+        {
+            let mut reports = self.reports.lock().unwrap();
+            let Some(report) = reports.iter_mut().find(|r| r.id == id) else {
+                return;
+            };
+            report.image = path.to_string();
+            report.text = report.describe();
+        }
+        self.persist_reports();
+    }
+
     /// Subscribe to notes as they are written. Every watcher gets every note;
     /// filtering by who a note is addressed to is the subscriber's job.
     pub fn subscribe_reports(&self) -> tokio::sync::broadcast::Receiver<Report> {
@@ -539,6 +566,7 @@ mod tests {
             client: client.map(|c| c.to_string()),
             prompt: "Fix this.".into(),
             text: String::new(),
+            image: String::new(),
         };
         report.text = report.describe();
         report

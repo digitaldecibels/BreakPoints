@@ -515,7 +515,14 @@ are the paths that can quietly break it.
 
 ### Features
 
-- [ ] **Attach a picture of the element to every note.** A note already carries
+- [x] **Attach a picture of the element to every note.** Built and working up
+  to the point macOS allows. The note is queued first and the capture happens
+  after it, so a slow or failed capture can never delay or lose the note; the
+  element is asked for its position again rather than trusting the rectangle
+  from before the scroll; and the picture's path joins the note's prose. What
+  cannot be verified here is the picture itself, because every capture on this
+  machine currently comes back blank for want of screen recording permission.
+  When that is granted the images appear with no further change. The old text: A note already carries
   the element's rectangle, and `shots::capture` already crops a window capture
   to a panel rectangle. Joining the two would make a note self-contained, so
   whoever reads it sees the thing rather than a selector. Decide where the
