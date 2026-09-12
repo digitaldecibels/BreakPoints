@@ -824,44 +824,38 @@
 
               <template x-if="$store.bp.bridge.enabled">
                 <div class="mt-4 space-y-4">
-                  <!-- Step one. The token used to be printed on its own line
-                       below the command, which meant copying the command and
-                       running it produced a server that could not authenticate
-                       and failed with no useful message. It belongs in the
-                       command. -->
+                  <!-- Step one. One command, and it needs nothing set up
+                       first: the skill reads the token out of this app's own
+                       config, and opening the socket is itself the claim. It
+                       used to be three steps, the first of which was
+                       registering an MCP server that the skill never used. -->
                   <div>
-                    <div class="text-[12px] font-medium text-text">1. Register the bridge, once per project</div>
-                    <p class="mt-1 text-[12px] leading-5 text-text-dim">
-                      Run this in the project's folder.
-                    </p>
-                    <code class="mt-1.5 block break-all rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text" x-text="`claude mcp add --transport http breakpoints ${$store.bp.bridge.mcpUrl} --header &quot;Authorization: Bearer ${$store.bp.bridge.token}&quot;`"></code>
-                  </div>
-
-                  <!-- Step two: the bit nobody could have guessed. -->
-                  <div>
-                    <div class="text-[12px] font-medium text-text">2. Claim reports for a session</div>
+                    <div class="text-[12px] font-medium text-text">1. Point a session at this row</div>
                     <p class="mt-1 text-[12px] leading-5 text-text-dim">
                       In the session you want notes to go to, run:
                     </p>
                     <code class="mt-1.5 block rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text">/run-breakpoints</code>
                     <p class="mt-1.5 text-[12px] leading-5 text-text-dim">
-                      That session owns reports, and its name shows beside the
-                      Report button. Run it elsewhere to move them. Without
-                      this, notes are kept but nothing collects them.
+                      It opens a socket and holds it. Its name shows beside the
+                      Report button, and the arrow lights up while it is
+                      listening. Run it elsewhere to move notes there.
                     </p>
                   </div>
 
                   <div>
-                    <div class="text-[12px] font-medium text-text">3. Report something</div>
+                    <div class="text-[12px] font-medium text-text">2. Report something</div>
                     <p class="mt-1 text-[12px] leading-5 text-text-dim">
                       Turn on Report, click what is wrong in a panel, describe
-                      it. The width goes with it. Every note also lands on your
-                      clipboard.
+                      it. The width goes with it, and it arrives in that
+                      session as you send it.
                     </p>
                   </div>
 
                   <!-- Which session owns them right now, so this is a status
-                       page and not just a set of instructions. -->
+                       page and not just a set of instructions. Claimed and
+                       listening are separate lines because they are separate
+                       facts: a claim outlives the session that made it, and a
+                       note addressed to a session that has gone waits here. -->
                   <div class="border-t border-line pt-3">
                     <div class="flex items-center gap-1.5 text-[12px] font-medium text-text-dim"><span class="h-3 w-3 shrink-0 text-text-faint" aria-hidden="true" x-icon="'go'"></span> Reports are going to</div>
                     <div class="mt-1 text-[12px]">
@@ -870,6 +864,32 @@
                         Nobody yet. Run /run-breakpoints in a session.
                       </span>
                     </div>
+                    <div class="mt-1.5 text-[12px]" x-show="$store.bp.reportOwner">
+                      <span x-show="$store.bp.reportWatching" class="text-accent">
+                        Listening now, so a note arrives as you send it.
+                      </span>
+                      <span x-show="!$store.bp.reportWatching" class="text-text-dim">
+                        Not listening, so the next note waits here and goes to
+                        your clipboard. Run /run-breakpoints again.
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Optional, and clearly marked as such. Registering the
+                       bridge as an MCP server is for driving the app from a
+                       session, not for receiving notes, and having it as step
+                       one made it look required. -->
+                  <div class="border-t border-line pt-3">
+                    <div class="text-[12px] font-medium text-text-dim">Optional: the tools, as an MCP server</div>
+                    <p class="mt-1 text-[12px] leading-5 text-text-dim">
+                      Only if you want a session to drive this row. Notes do
+                      not need it. Run it in the project's folder.
+                    </p>
+                    <code class="mt-1.5 block break-all rounded-sm border border-line bg-chrome-raised p-2 font-mono text-[11px] text-text-faint" x-text="`claude mcp add --transport http breakpoints ${$store.bp.bridge.mcpUrl} --header &quot;Authorization: Bearer ${$store.bp.bridge.token}&quot;`"></code>
+                    <p class="mt-1.5 text-[12px] leading-5 text-text-faint">
+                      A session that starts while this app is not running finds
+                      nothing there, and says so every time.
+                    </p>
                   </div>
 
                   <!-- The standing instruction.
@@ -928,8 +948,8 @@
                       </button>
                     </div>
                     <p class="mt-1 text-[11px] leading-4 text-text-faint">
-                      Goes in front of every note, on the clipboard and over
-                      the bridge.
+                      Goes in front of every note, whether it is pushed to a
+                      session or copied to your clipboard.
                     </p>
                   </div>
 

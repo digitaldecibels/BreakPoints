@@ -45,10 +45,12 @@ fn require_panel(state: &Shared, needle: &str) -> Result<String, String> {
             .into_iter()
             .map(|p| format!("{} ({})", p.name, p.source))
             .collect();
-        format!(
-            "no panel matches \"{needle}\". Open panels: {}",
-            if names.is_empty() { "none".to_string() } else { names.join(", ") }
-        )
+        // With nothing open, "Open panels: none" reads as a list that happens
+        // to be empty and leaves an agent guessing what to do about it.
+        if names.is_empty() {
+            return "no panels are open, so there is nothing to address. Open a project or navigate to a URL first.".to_string();
+        }
+        format!("no panel matches \"{needle}\". Open panels: {}", names.join(", "))
     })
 }
 

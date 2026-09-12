@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
 use crate::state::Shared;
-use crate::{audit, canvas, config, model, project, references, shots, tools, util};
+use crate::{access, audit, canvas, config, model, project, references, shots, tools, util};
 
 pub const PORT: u16 = 7333;
 
@@ -446,6 +446,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "list_profiles",
     "load_profile",
     "audit_all",
+    "audit_accessibility",
     "attach_reference",
     "get_references",
     "diff_panel",
@@ -490,6 +491,11 @@ pub async fn call_tool(
         "eval_chrome" => {
             let script = string_arg(args, "script")?;
             tools::eval_chrome(app, &script).await
+        }
+
+        "audit_accessibility" => {
+            let report = access::audit_all(state).await?;
+            Ok(serde_json::to_value(report).map_err(|e| e.to_string())?)
         }
 
         "take_reports" => {
@@ -852,6 +858,11 @@ pub fn tool_definitions() -> Vec<Value> {
         json!({
             "name": "get_references",
             "description": "Which reference frame belongs to which panel.",
+            "inputSchema": schema(json!({}), &[]),
+        }),
+        json!({
+            "name": "audit_accessibility",
+            "description": "Run an accessibility audit in every panel with axe-core and return the violations grouped by rule, each carrying the widths it was broken at. Rules broken at some widths and not others are marked `widthSpecific` and ranked first within their impact, because those are the ones a tool that tests one width cannot see. Ranked worst impact first. Takes a few seconds per panel.",
             "inputSchema": schema(json!({}), &[]),
         }),
         json!({

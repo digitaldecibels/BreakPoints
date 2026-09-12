@@ -6,6 +6,7 @@
 //! panels, one per viewport, positioned by Rust at absolute pixel coordinates
 //! and composited on top of the chrome.
 
+pub mod access;
 pub mod audit;
 pub mod bridge;
 pub mod browser;

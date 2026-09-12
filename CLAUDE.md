@@ -300,6 +300,7 @@ src-tauri/src/
   tools.rs         the operations, written once, shared with the bridge
   bridge.rs        agent bridge: HTTP API plus MCP, and the tool definitions
   audit.rs         the cross viewport layout probes
+  access.rs        axe-core in every panel, violations grouped by width
   shots.rs         window capture cropped to a panel rect
   references.rs    design references and diff_panel
   project.rs       opening a project, precedence, apply, write
@@ -307,6 +308,7 @@ src-tauri/src/
   generate.rs      breakpoints to viewports: heights, names, edge testing
   watcher.rs       debounced file watching, two categories of change
   scanner/         walk, log, units, jsobj, tailwind, drupal, css, devserver
+  assets/axe.min.js  vendored axe-core, compiled into the binary
 src/               the chrome: index.html at the root, ui/ for the Alpine parts
 agent/stdio-shim.js  MCP over stdio for Codex, forwards to the HTTP bridge
 ```
@@ -343,12 +345,42 @@ about itself. The note is about the breakpoint we put it at, so
 `innerWidth` alongside it, because when those two disagree that is itself the
 bug.
 
-**A note reaches an agent two ways, because the app cannot push into a session.**
-It waits in the app for `take_reports`, the bridge tool, which hands over
-everything unclaimed and clears the list. And it lands on the clipboard the
-moment it is written, formatted as prose, so it can be pasted straight into a
-conversation. The toolbar shows a count of what is waiting; clicking it copies
-the lot.
+**A note is pushed into a session, and the clipboard is what happens when
+there is no session to push to.** A watching agent holds a socket open on
+`/ws/reports` and is handed each note as it is written; `await_reports` is the
+same delivery for a client that would rather hold an HTTP request open.
+`take_reports` still exists and still drains the queue, for a client that wants
+to ask rather than wait. Connecting is the claim, so there is no separate
+request and a session cannot end up listening while notes are addressed
+somewhere else.
+
+The clipboard is now a signal rather than a habit: a note only lands there when
+nothing is listening, so a note on the clipboard is one no session received.
+The toolbar says so at the time, and its count of what is waiting comes from
+Rust on `reports:changed` rather than being counted in the window.
+
+**The queue survives the app, and the claim deliberately does not.** Both used
+to live only in memory, so a Rust edit, a Vite reload or a crash took every
+uncollected note with it, and every note written afterwards was addressed to
+nobody. `take_reports_for` matched only the exact session id, so those notes
+sat in the queue while the session that wanted them polled straight past.
+
+Now the queue is written to `reports.json` in the app data folder and read back
+at boot. The claim is not restored, because it names a session that may have
+ended while the app was down, and an unaddressed note goes to whoever asks
+next, which is what makes a stranded note collectable at all.
+
+**Delivery takes a note out of the queue, so a send that fails has to put the
+rest back.** Otherwise a note written in the seconds after a watcher went away
+is drained for a socket that cannot carry it and then dropped, which is the
+same stranding in a new place. Found by disconnecting mid-test, not by reading
+the code. For the same reason the socket is read as well as written: a watcher
+going away has to be noticed at once, because the app suppresses the clipboard
+while it believes somebody is listening.
+
+**Claimed and listening are different facts.** The toolbar can name a session
+while the arrow beside it is dim, which means the next note waits in the queue
+rather than arriving anywhere.
 
 The injected script is `r##"…"##` rather than `r#"…"#`, because the picker
 builds id selectors with `"#" + id` and that sequence closes a single-hash raw
@@ -442,6 +474,19 @@ six taped together, and all three are load bearing: anything fixed or sticky is
 hidden after the first tile, the page is asked where it actually landed rather
 than told where it should be (the last tile always lands short), and scroll
 sync is suspended so the other panels do not follow this one down the page.
+
+**Accessibility, per width.** `audit_accessibility` injects vendored axe-core
+into every panel, runs it, and groups the violations by rule with the widths
+each was broken at. A rule broken at some widths and not others is marked
+`widthSpecific` and ranked first within its impact, because that is the kind a
+tool testing one width cannot see. Panels are audited one at a time on purpose:
+seven copies of axe walking seven DOMs at once makes every one of them slower,
+and this is a measuring instrument. axe is vendored rather than fetched so the
+audit works with no network and the version is the one the tests were written
+against. It has no interface yet; see `tasks.md`.
+
+Lighthouse is the wrong tool here and always will be: it drives Chrome over the
+DevTools Protocol, and a panel is a WKWebView.
 
 Not built, and deliberately so:
 

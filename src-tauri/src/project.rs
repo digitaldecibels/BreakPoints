@@ -319,10 +319,7 @@ pub fn write_file(
         .as_ref()
         .map(|r| {
             (
-                r.frameworks
-                    .first()
-                    .map(|f| f.source_file.clone())
-                    .unwrap_or_else(|| "css media queries".into()),
+                r.breakpoint_source_file.clone(),
                 r.source_hash.clone(),
             )
         })

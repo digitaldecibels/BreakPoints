@@ -144,6 +144,15 @@ pub struct ScanReport {
     /// Hash of the extracted widths, not of the file bytes, so a save that
     /// changes nothing relevant is a no-op.
     pub source_hash: String,
+    /// The file the breakpoints actually came from.
+    ///
+    /// Deliberately not `frameworks[0].source_file`. The first framework found
+    /// is not necessarily the one that produced any of these widths: on a
+    /// Drupal project with Tailwind, Tailwind is detected first from its
+    /// stylesheet and declares no `--breakpoint-*` at all, while every width
+    /// came out of the theme's `*.breakpoints.yml`. Naming the stylesheet sent
+    /// people to a file with nothing relevant in it.
+    pub breakpoint_source_file: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
     /// True when the walk hit a budget and stopped early.

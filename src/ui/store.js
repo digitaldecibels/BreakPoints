@@ -196,7 +196,10 @@ export function registerStore(Alpine) {
         if (opened.sourceChanged) {
           this.sourceChanged = {
             message: "The code's breakpoints have moved since breakpoints.md was written",
-            file: opened.report?.frameworks?.[0]?.sourceFile ?? "the framework config",
+            // The file the breakpoints came from, not the first framework
+            // found. Those are different files on any project where one tool
+            // is detected and another one holds the widths.
+            file: opened.report?.breakpointSourceFile ?? "the framework config",
           };
         }
         this.closeSheet();

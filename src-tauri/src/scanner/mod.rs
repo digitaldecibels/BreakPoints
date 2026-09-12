@@ -240,6 +240,7 @@ pub fn scan(root: &Path, mut on_row: impl FnMut(ScanRow)) -> ScanOutcome {
     let source_hash = util::short_hash(
         &widths.iter().map(|w| format!("{w}")).collect::<Vec<_>>(),
     );
+    let breakpoint_source_file = breakpoint_source_file(&merged, &frameworks);
 
     let report = ScanReport {
         project_root: root.to_string_lossy().to_string(),
@@ -254,11 +255,37 @@ pub fn scan(root: &Path, mut on_row: impl FnMut(ScanRow)) -> ScanOutcome {
         css_files,
         duration_ms: started.elapsed().as_millis() as u64,
         source_hash,
+        breakpoint_source_file,
         log_path: None,
         truncated: index.truncated,
     };
 
     ScanOutcome { report, rows, log }
+}
+
+/// Which file to name when talking about where the breakpoints came from.
+///
+/// The file that produced the most of them wins. A tie breaks on the name, so
+/// the answer does not move between runs of the same scan.
+fn breakpoint_source_file(
+    merged: &[types::BreakpointDiscovery],
+    frameworks: &[types::FrameworkDetection],
+) -> String {
+    let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for found in merged {
+        if found.source_file.is_empty() {
+            continue;
+        }
+        *counts.entry(found.source_file.as_str()).or_default() += 1;
+    }
+    let mut ranked: Vec<(&str, usize)> = counts.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+
+    ranked
+        .first()
+        .map(|(file, _)| file.to_string())
+        .or_else(|| frameworks.first().map(|f| f.source_file.clone()))
+        .unwrap_or_else(|| "css media queries".into())
 }
 
 fn plural(n: usize) -> &'static str {
@@ -442,6 +469,68 @@ pub fn remember(root: &Path, report: &ScanReport) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    fn found(width: f64, file: &str) -> types::BreakpointDiscovery {
+        types::BreakpointDiscovery {
+            width,
+            name: None,
+            source: "test".into(),
+            source_file: file.into(),
+            line: None,
+            confidence: 1.0,
+            kind: types::Kind::Configured,
+            edge: types::Edge::Min,
+            file_count: 1,
+        }
+    }
+
+    fn framework(file: &str) -> types::FrameworkDetection {
+        types::FrameworkDetection {
+            framework: "Tailwind CSS".into(),
+            version: Some("4".into()),
+            confidence: 1.0,
+            source_file: file.into(),
+            breakpoints: vec![],
+            metadata: Default::default(),
+        }
+    }
+
+    /// The case this exists for. Tailwind is detected first, from a stylesheet
+    /// that declares no breakpoints, while every width came out of Drupal's
+    /// yaml. Naming the stylesheet sent people to a file with nothing in it.
+    #[test]
+    fn the_file_named_is_the_one_the_widths_came_from() {
+        let merged = vec![
+            found(550.0, "web/themes/be_the_ray/be_the_ray.breakpoints.yml"),
+            found(768.0, "web/themes/be_the_ray/be_the_ray.breakpoints.yml"),
+            found(1024.0, "web/themes/be_the_ray/be_the_ray.breakpoints.yml"),
+        ];
+        let frameworks = vec![framework("web/themes/be_the_ray/css/styles.css")];
+        assert_eq!(
+            breakpoint_source_file(&merged, &frameworks),
+            "web/themes/be_the_ray/be_the_ray.breakpoints.yml"
+        );
+    }
+
+    #[test]
+    fn the_file_that_produced_the_most_of_them_wins() {
+        let merged = vec![
+            found(550.0, "a.css"),
+            found(768.0, "b.yml"),
+            found(1024.0, "b.yml"),
+        ];
+        assert_eq!(breakpoint_source_file(&merged, &[]), "b.yml");
+    }
+
+    /// With nothing found, the framework is still better than nothing, and
+    /// with no framework either there is still something to print.
+    #[test]
+    fn nothing_found_falls_back_rather_than_naming_an_empty_string() {
+        assert_eq!(breakpoint_source_file(&[], &[framework("tailwind.css")]), "tailwind.css");
+        assert_eq!(breakpoint_source_file(&[], &[]), "css media queries");
+    }
+
     use super::*;
 
     fn bp(width: f64, name: Option<&str>, kind: Kind, confidence: f64) -> BreakpointDiscovery {
