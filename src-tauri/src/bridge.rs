@@ -543,6 +543,11 @@ pub async fn call_tool(
 
         "navigate" => {
             let url = string_arg(args, "url")?;
+            // The empty address is the app's own empty state, not somewhere to
+            // send a row that is already showing something.
+            if url.trim().is_empty() {
+                return Err("url is empty, and there is nowhere to go".into());
+            }
             canvas::navigate_all(state, &url)?;
             canvas::emit_canvas(app, state);
             let status = project::probe(&url).await;
@@ -650,6 +655,9 @@ pub async fn call_tool(
 
         "claim_reports" => {
             let id = string_arg(args, "id")?;
+            if id.trim().is_empty() {
+                return Err("id is the session's own identifier and cannot be empty".into());
+            }
             let name = args
                 .get("name")
                 .and_then(Value::as_str)
@@ -673,10 +681,14 @@ pub async fn call_tool(
         "get_dom" => {
             let panel = string_arg(args, "panel")?;
             let selector = string_arg(args, "selector")?;
+            // A nonsense limit is not a limit. A negative one arrived as
+            // nothing and truncated the answer to an empty document, which
+            // looked like a page with no body in it.
             let max = args
                 .get("maxChars")
                 .and_then(Value::as_u64)
-                .unwrap_or(8000) as usize;
+                .unwrap_or(8000)
+                .clamp(200, 2_000_000) as usize;
             Ok(json!({ "html": tools::get_dom(state, &panel, &selector, max).await? }))
         }
 

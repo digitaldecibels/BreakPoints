@@ -153,6 +153,17 @@ pub async fn eval_chrome(app: &AppHandle, script: &str) -> Result<Value, String>
 /// into a quoted string, which is the kind of thing that looks fine until a
 /// caller tries to read a number out of it.
 pub fn unwrap_envelope(raw: &str) -> Result<Value, String> {
+    // A script that will not parse takes the wrapper down with it, so the
+    // webview evaluates nothing and hands back an empty string. That used to
+    // read as a successful call that returned no value, which is the same
+    // shape as a script that genuinely returns nothing.
+    if raw.trim().is_empty() || raw.trim() == "null" {
+        return Err(
+            "the script returned nothing. If it is not meant to, check it parses: a syntax \
+             error stops the whole thing running and looks exactly like this."
+                .into(),
+        );
+    }
     let once: Value = serde_json::from_str(raw).unwrap_or_else(|_| Value::String(raw.to_string()));
     let envelope: Value = match &once {
         Value::String(text) => serde_json::from_str(text).unwrap_or_else(|_| once.clone()),

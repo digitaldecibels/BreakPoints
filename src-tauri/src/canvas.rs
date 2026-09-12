@@ -2022,6 +2022,12 @@ pub fn resolve_id(state: &Shared, needle: &str) -> Option<String> {
 /// gets things wrong.
 pub fn match_viewport(viewports: &[Viewport], needle: &str) -> Option<usize> {
     let needle = needle.trim();
+    // Nothing is not a panel. An empty name used to fall through the matching
+    // and land on the first panel, so a caller that forgot the argument got a
+    // confident answer about a panel it had not asked for.
+    if needle.is_empty() {
+        return None;
+    }
     if let Ok(number) = needle.parse::<usize>() {
         if number < viewports.len() {
             return Some(number);
@@ -2163,6 +2169,20 @@ mod tests {
         assert!(!is_gesture(&msg("/p/report")));
         assert!(!is_gesture(&msg("/p/nav")));
         assert!(!is_gesture(&serde_json::json!({})));
+    }
+
+    /// An empty name used to land on the first panel, so a caller that forgot
+    /// the argument got a confident answer about a panel it never asked for.
+    #[test]
+    fn nothing_is_not_a_panel() {
+        let viewports = vec![
+            Viewport::new("Small", 375.0, 667.0, "custom"),
+            Viewport::new("Medium", 768.0, 1020.0, "medium"),
+        ];
+        assert_eq!(match_viewport(&viewports, ""), None);
+        assert_eq!(match_viewport(&viewports, "   "), None);
+        assert_eq!(match_viewport(&viewports, "0"), Some(0));
+        assert_eq!(match_viewport(&viewports, "Medium"), Some(1));
     }
 
     /// The row is routinely four times the window's width, so most of what the

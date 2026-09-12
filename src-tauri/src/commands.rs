@@ -137,6 +137,9 @@ pub async fn apply_viewports(
 
 #[tauri::command]
 pub fn navigate(app: AppHandle, state: State<'_, Shared>, url: String) -> Result<(), String> {
+    if url.trim().is_empty() {
+        return Err("url is empty, and there is nowhere to go".into());
+    }
     // A refusal reaches the toolbar, which shows it in the notice band rather
     // than sending the whole row to a blank page and calling it success.
     canvas::navigate_all(&state, &url)?;
