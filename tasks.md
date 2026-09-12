@@ -222,7 +222,7 @@ are the paths that can quietly break it.
   callers. While there: `starts_with("localhost")` also matches
   `localhosting.example`.
 
-- [ ] **Opening the inspector may be able to hang the app.** `inspect_panel`
+- [x] **Opening the inspector may be able to hang the app.** `inspect_panel`
   is sync, so it runs on the main thread, and it holds the canvas lock across
   `open_devtools`, which takes focus. The focus handler calls
   `canvas::restore_frames`, which locks the same non-reentrant mutex on the

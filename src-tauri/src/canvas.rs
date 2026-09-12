@@ -1450,11 +1450,24 @@ pub fn reload_all(state: &Shared) {
 /// This is WebKit's own inspector, in its own window, and it takes focus when it
 /// opens. There is no way to ask for it unfocused.
 pub fn inspect_panel(app: &AppHandle, state: &Shared, id: &str) -> Result<(), String> {
-    {
+    // The handle is taken out of the lock and the guard dropped before the
+    // inspector is opened.
+    //
+    // This command is synchronous, so it runs on the main thread, and opening
+    // the inspector takes focus. AppKit can deliver the focus event inline
+    // during that call, and this app's focus handler locks the same canvas
+    // mutex, which is not reentrant. That is a frozen window with nothing in
+    // the log, rather than a panic. Not reproduced, and it costs nothing to
+    // make impossible.
+    let webview = {
         let canvas = state.canvas.lock().unwrap();
-        let panel = find(&canvas, id).ok_or_else(|| format!("no panel called {id}"))?;
-        panel.webview.open_devtools();
-    }
+        find(&canvas, id)
+            .ok_or_else(|| format!("no panel called {id}"))?
+            .webview
+            .clone()
+    };
+    webview.open_devtools();
+
     set_inspecting(app, state, Some(id.to_string()));
     Ok(())
 }
@@ -1488,6 +1501,7 @@ pub fn inspect_panel(app: &AppHandle, state: &Shared, id: &str) -> Result<(), St
 /// it is worse: you click between the inspector and the page constantly while
 /// using it, and each of those would rebuild the row underneath you.
 pub fn set_inspecting(app: &AppHandle, state: &Shared, id: Option<String>) {
+    let mut show_or_hide: Vec<(tauri::Webview<Wry>, bool)> = Vec::new();
     {
         let mut canvas = state.canvas.lock().unwrap();
         if canvas.inspecting == id {
@@ -1498,19 +1512,22 @@ pub fn set_inspecting(app: &AppHandle, state: &Shared, id: Option<String>) {
         // A sheet already hides everything; leave it alone and let closing it
         // sort the row out, or the two would fight over the same webviews.
         if !canvas.panels_hidden {
+            // Collected under the lock, acted on after it. Showing or hiding a
+            // webview is a call into AppKit, and this module's own rule is
+            // never to hold a lock across one.
             for panel in canvas.panels.iter() {
                 let failed = matches!(panel.state, PanelState::Failed(_));
                 let wanted = match &id {
                     Some(only) => &panel.viewport.id == only,
                     None => true,
                 };
-                let _ = if wanted && !failed {
-                    panel.webview.show()
-                } else {
-                    panel.webview.hide()
-                };
+                show_or_hide.push((panel.webview.clone(), wanted && !failed));
             }
         }
+    }
+
+    for (webview, show) in show_or_hide {
+        let _ = if show { webview.show() } else { webview.hide() };
     }
 
     if id.is_none() {
@@ -1640,6 +1657,7 @@ pub fn sync_scroll(state: &Shared, from: &str, pct: f64) {
 /// Sheets are chrome, and chrome composites below the panels, so a sheet can
 /// only be seen if the panels get out of the way.
 pub fn set_panels_hidden(app: &AppHandle, state: &Shared, hidden: bool) {
+    let mut show_or_hide: Vec<(tauri::Webview<Wry>, bool)> = Vec::new();
     {
         let mut canvas = state.canvas.lock().unwrap();
         if canvas.panels_hidden == hidden {
@@ -1648,12 +1666,12 @@ pub fn set_panels_hidden(app: &AppHandle, state: &Shared, hidden: bool) {
         canvas.panels_hidden = hidden;
         for panel in canvas.panels.iter() {
             let failed = matches!(panel.state, PanelState::Failed(_));
-            let _ = if hidden || failed {
-                panel.webview.hide()
-            } else {
-                panel.webview.show()
-            };
+            show_or_hide.push((panel.webview.clone(), !(hidden || failed)));
         }
+    }
+
+    for (webview, show) in show_or_hide {
+        let _ = if show { webview.show() } else { webview.hide() };
     }
     if !hidden {
         relayout(app, state);
