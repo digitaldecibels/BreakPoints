@@ -2,68 +2,6 @@
 
 ## Open
 
-### Performance
-
-- [ ] **The pump asks panels nobody can see.** `canvas::start_pump` evaluates a
-  drain script in every panel on every tick. Measured on 12 September 2026 with
-  the Bucknell row: the row is 6365px wide in a 1400px window, so three panels
-  of seven are on screen and the other four are asked for a scroll position
-  that cannot have changed. Idle in the background costs 1.1% of a core, and
-  the tick is ten times faster when the window has focus, which matches the 10
-  to 12% already recorded for a focused row. More than half of that is waste.
-
-  The fix is small and needs no new state: `Canvas` already holds `scroll_x`
-  and every `Panel` holds `home_x` and `width`, so a panel is on screen when
-  `home_x - scroll_x + width > 0` and `home_x - scroll_x < window width`. Keep
-  asking a panel that still has messages queued from before it scrolled away,
-  or its queue arrives late rather than never.
-
-- [ ] **One wedged panel delays every panel behind it.** The pump drains panels
-  in sequence, each with its own 500ms timeout, so a tick costs the sum of the
-  slow ones rather than the slowest. Asking them concurrently bounds a tick at
-  one timeout however many panels are open. Medium: the drain has to stay
-  ordered per panel, and `dispatch_from` has to keep taking the panel id from
-  the caller rather than from the message.
-
-- [ ] **Console noise pins the poll loop at its fastest rate.** Any drained
-  message resets `last_message` (`canvas.rs:1025`), and the injected script
-  patches every `console` method, so a page that logs on a timer, a framework
-  dev build, or a page that throws repeatedly keeps a message in the queue on
-  every tick and holds the 16ms rate for the life of the session. That is
-  roughly seven times the documented cost, sustained, on an app whose job is
-  measuring how a page performs. Only scroll and wheel messages should refresh
-  it, which is a filter over the drained array. Small, high value.
-
-- [ ] **A window resize writes the whole config to disk every frame.**
-  `WindowEvent::Resized` runs on the main thread and calls `remember_window`,
-  which serialises every project record and every profile to a temp file and
-  renames it, and macOS delivers that event continuously while you drag. The
-  same frame also runs `relayout`, which is 21 inline webview operations and
-  seven page re-layouts for a row of seven. This is the most visible stutter in
-  the app and the only place it touches the disk on a per-frame path. Debounce
-  the save to half a second after the last event and coalesce the layout to one
-  per frame. Small.
-
-- [ ] **The file watcher walks the entire project, including node_modules.**
-  `add_root` on the debouncer walks the whole tree and stats every entry with
-  no skip list, keeping the result for the life of the watch. On a Drupal
-  project that is vendor plus `web/core` plus node_modules, so hundreds of
-  thousands of stats and tens of megabytes resident, and it walks again on
-  every directory that appears. The scanner has a careful skip list and
-  `is_drupal_core`, and the watcher throws all of it away. Swapping to the
-  no-cache debouncer is one constructor. The watcher's own skip list in
-  `classify` also does not match the scanner's, so a `composer install` under
-  `web/core`, or a checkout in `.claude/worktrees`, currently offers you a
-  rescan of changes that are not the site.
-
-- [ ] **Screenshot cropping and stitching are per-pixel loops.** `shots::crop`
-  and the stitch in `walk_and_stitch` call `get_pixel` and `put_pixel` one
-  pixel at a time, so a twenty-tile full-page capture on a Retina display is
-  around 150 million bounds-checked calls, single-threaded. `crop_imm` and
-  `replace` in the image library do both. Small, and worth roughly an order of
-  magnitude on the slowest operation the app has. `references.rs` has the same
-  pattern, and also writes a PNG and immediately reads and decodes it back.
-
 ### Correctness: silent failures
 
 Each of these stops something working with nothing on screen to say so. The
@@ -153,6 +91,97 @@ are the paths that can quietly break it.
   from the panels they name, and orphaned webviews. A generation counter
   checked before each push, or an async spawn lock. Medium.
 
+### Performance
+
+- [ ] **The pump asks panels nobody can see.** `canvas::start_pump` evaluates a
+  drain script in every panel on every tick. Measured on 12 September 2026 with
+  the Bucknell row: the row is 6365px wide in a 1400px window, so three panels
+  of seven are on screen and the other four are asked for a scroll position
+  that cannot have changed. Idle in the background costs 1.1% of a core, and
+  the tick is ten times faster when the window has focus, which matches the 10
+  to 12% already recorded for a focused row. More than half of that is waste.
+
+  The fix is small and needs no new state: `Canvas` already holds `scroll_x`
+  and every `Panel` holds `home_x` and `width`, so a panel is on screen when
+  `home_x - scroll_x + width > 0` and `home_x - scroll_x < window width`. Keep
+  asking a panel that still has messages queued from before it scrolled away,
+  or its queue arrives late rather than never.
+
+- [ ] **One wedged panel delays every panel behind it.** The pump drains panels
+  in sequence, each with its own 500ms timeout, so a tick costs the sum of the
+  slow ones rather than the slowest. Asking them concurrently bounds a tick at
+  one timeout however many panels are open. Medium: the drain has to stay
+  ordered per panel, and `dispatch_from` has to keep taking the panel id from
+  the caller rather than from the message.
+
+- [ ] **Console noise pins the poll loop at its fastest rate.** Any drained
+  message resets `last_message` (`canvas.rs:1025`), and the injected script
+  patches every `console` method, so a page that logs on a timer, a framework
+  dev build, or a page that throws repeatedly keeps a message in the queue on
+  every tick and holds the 16ms rate for the life of the session. That is
+  roughly seven times the documented cost, sustained, on an app whose job is
+  measuring how a page performs. Only scroll and wheel messages should refresh
+  it, which is a filter over the drained array. Small, high value.
+
+- [ ] **A window resize writes the whole config to disk every frame.**
+  `WindowEvent::Resized` runs on the main thread and calls `remember_window`,
+  which serialises every project record and every profile to a temp file and
+  renames it, and macOS delivers that event continuously while you drag. The
+  same frame also runs `relayout`, which is 21 inline webview operations and
+  seven page re-layouts for a row of seven. This is the most visible stutter in
+  the app and the only place it touches the disk on a per-frame path. Debounce
+  the save to half a second after the last event and coalesce the layout to one
+  per frame. Small.
+
+- [ ] **The file watcher walks the entire project, including node_modules.**
+  `add_root` on the debouncer walks the whole tree and stats every entry with
+  no skip list, keeping the result for the life of the watch. On a Drupal
+  project that is vendor plus `web/core` plus node_modules, so hundreds of
+  thousands of stats and tens of megabytes resident, and it walks again on
+  every directory that appears. The scanner has a careful skip list and
+  `is_drupal_core`, and the watcher throws all of it away. Swapping to the
+  no-cache debouncer is one constructor. The watcher's own skip list in
+  `classify` also does not match the scanner's, so a `composer install` under
+  `web/core`, or a checkout in `.claude/worktrees`, currently offers you a
+  rescan of changes that are not the site.
+
+- [ ] **Screenshot cropping and stitching are per-pixel loops.** `shots::crop`
+  and the stitch in `walk_and_stitch` call `get_pixel` and `put_pixel` one
+  pixel at a time, so a twenty-tile full-page capture on a Retina display is
+  around 150 million bounds-checked calls, single-threaded. `crop_imm` and
+  `replace` in the image library do both. Small, and worth roughly an order of
+  magnitude on the slowest operation the app has. `references.rs` has the same
+  pattern, and also writes a PNG and immediately reads and decodes it back.
+
+- [ ] **Scroll sync tells every panel, unconditionally.** A scroll message from
+  one panel eval-pushes `__bpApplyScroll` into every other panel with no check
+  on where they already are, which for seven panels is roughly 42 evaluations
+  per throttle window during a steady scroll. `Panel::last_scroll_pct` is
+  exactly the state needed to skip a panel already within a pixel or two of the
+  target: it is declared, written once when the panel is created, and never
+  read or updated again. Populating it removes most of the fan-out, because the
+  panels converge, and it also gives an agent a per-panel scroll position that
+  currently needs an `eval_js` per panel to discover. Small.
+
+- [ ] **The hot loop allocates for nothing.** Every drain calls `eval_js`,
+  which starts with `require_panel` and `resolve_id`, and that clones every
+  viewport in the row to match an id it was already handed. It then builds a
+  900 byte wrapper with `format!` and parses the result JSON twice. At the
+  fastest tick with seven panels that is about 440 times a second. It will not
+  beat the cost of the round trip into WebKit, but an `eval_js_by_id` that
+  skips resolution and a static drain script remove all the avoidable work
+  around it. Small.
+
+- [ ] **A wheel event parks a worker thread twice.** `nudge_scroll` asks the
+  window for its scale factor and inner size, and both of those send a message
+  to the main thread and then block on an unbounded receive. Called off the
+  main thread, which is always, that is two blocking round trips per wheel
+  event against a main thread simultaneously laying out seven pages. If the
+  main thread is inside a modal or the Web Inspector, the receive has no
+  timeout and the worker is parked indefinitely. Cache the window's logical
+  width in `AppState` from the resize handler that already runs, and the getter
+  disappears. Small.
+
 ### Small fixes worth taking
 
 - [ ] **A typo in the URL bar blanks the whole row.** `util::normalize_url`
@@ -188,6 +217,39 @@ are the paths that can quietly break it.
   time, which can be days after the typo was committed. Move them into
   `attach`. Small, and it matters because writing that file is meant to be a
   deliberate act.
+
+- [ ] **A capture leaves the row where it finished.** `bring_into_view` pans
+  the row to put a panel on screen and nothing pans it back, so capturing every
+  panel walks the row and leaves you wherever the last one was. The same
+  function saves the scroll sync setting, forces it off, and writes the old
+  value back unconditionally, so a toggle made during the several seconds a
+  full-page capture takes is silently reverted. Remember and restore the scroll
+  offset, and use a suspend counter rather than a save and restore for sync.
+  Small.
+
+### Robustness
+
+- [ ] **Nothing tests the window.** There are 184 unit tests and not one that
+  starts the app. The failures this codebase actually hits are a missing
+  permission file, a missing capability line, and the panel width arithmetic,
+  and a smoke test that boots the app, opens a project and asserts each panel's
+  reported width against its declared width would catch all three. It is also
+  the natural home for the width check above. Medium.
+
+- [ ] **Note delivery is take on read.** Collecting a note removes it from the
+  queue, so a note handed to an HTTP response that never arrives is gone. The
+  socket path recovers correctly now, because a failed send puts the rest back,
+  but `take_reports` and `await_reports` do not. An acknowledgement step, where
+  a note is marked handed over and only cleared when the caller says it arrived,
+  would make both paths at least once. Medium. Signing and notarising the app
+  was considered alongside this and deliberately left out.
+
+- [ ] **The scan deadline is only enforced in two of five detectors.** The walk
+  and the CSS detector both check `index.out_of_time()`; the Tailwind, Drupal
+  and dev server detectors never do. Since Tailwind runs first and reads the
+  entire stylesheet corpus, the detector most likely to blow the ten second
+  deadline is the one that cannot see it. On a network volume or a cold file
+  system that is how the scan sheet hangs. Small.
 
 ### Scanner: wrong or missing widths
 
@@ -343,6 +405,77 @@ are the paths that can quietly break it.
   This is the scanner's own explain-what-you-discarded rule applied to the case
   where it matters most. Small.
 
+### Scanner: remaining gaps
+
+- [ ] **A monorepo merges every config it finds.** Every framework config in
+  the tree contributes its widths to one list, so four apps with four different
+  screen sets produce their union while the sheet names a single file as the
+  source. The same happens with Drupal breakpoint files across a theme, a
+  subtheme and any custom modules. Prefer the config nearest the root, or the
+  one whose directory contains the chosen dev server, and report the others as
+  a conflict rather than merging them. That is what the scanner's own
+  surface-a-disagreement rule asks for, and this is the case it does not cover.
+  Medium.
+
+- [ ] **Configs compete with stylesheets for the file cap.** The 3000 file keep
+  limit is one pool covering both, and the walk is in directory order, so on a
+  large monorepo the cap can be spent before the walk reaches the app whose
+  config is the actual answer. Configs are never numerous, so they should never
+  draw on that budget: two keep lists, one uncapped for configs and one capped
+  for stylesheets. Small.
+
+- [ ] **Rails is never detected, and a monorepo gets no default port.** Nothing
+  looks for a Rails startup file, a `Procfile.dev` or a `Gemfile`, and those
+  files are not indexed either, so a Rails app never gets its localhost URL. In
+  a monorepo the root package file carries no framework dependency, so no
+  default port is offered there either. Small each, medium if a port should be
+  read out of an env file.
+
+- [ ] **Desktop-first projects get panels at untested widths.** The scanner
+  works out which side of each boundary a query applies to and then never uses
+  it: the only consumer is a collapse helper that nothing calls. For a project
+  written desktop-first, every boundary is one pixel below where its own rules
+  take effect, so without edge testing switched on, not one panel renders at a
+  width where the project's rules apply. Using the edge to place the panel, or
+  to turn edge testing on by itself for max-side discoveries, is a few lines
+  and changes what you actually see. Small.
+
+### Scanner: raising confidence in every width
+
+- [ ] **Confirm framework widths against real usage.** Index the templates and
+  components, `.twig`, `.html`, `.jsx`, `.tsx`, `.vue`, and count how often
+  each breakpoint is actually referenced, through Tailwind variant prefixes or
+  mixin calls. A default that appears in 400 class attributes is evidence; one
+  that appears nowhere is an assumption the project never uses. This converts a
+  framework guess into a measurement, feeds the file count the merge already
+  carries, and gives the recommender a reason to check the widths a project
+  leans on rather than all five. It is also the signal the fallback problem
+  needs in order to stop preferring guessed defaults. Medium, and the best of
+  the three bets.
+
+- [ ] **Rank by how much CSS sits behind a width.** Confidence today is how
+  many files mention a width. A breakpoint with four kilobytes of rules behind
+  it is a layout decision; one with a single `display: none` is a tweak. The
+  prelude parser already returns where each query starts, so matching its
+  closing brace gives the byte length of the body. Better signal, from data
+  already in hand. Medium.
+
+- [ ] **Ask the page, not the codebase.** There is a real browser open at every
+  width holding the fully resolved stylesheet: the preprocessor has run,
+  imports are resolved, custom media is expanded, and container queries are
+  distinguishable from viewport ones. Reading the media rules out of the page is
+  ground truth for the exact question the scanner infers. It cannot be a normal
+  detector, because it needs a panel rather than a file index, but it could
+  raise a CSS discovery to confirmed or flag a configured width the browser
+  never sees. Large, and it is the direction everything else here points at.
+
+- [ ] **Follow Tailwind presets.** A config that takes its screens from a
+  shared preset package, which is the standard design-system setup, resolves to
+  nothing, and the shipped defaults are emitted with only a log note. A preset
+  that resolves to a path inside the project, a sibling workspace package, can
+  be parsed by the same code. One outside the project should warn rather than
+  quietly guess, since published packages are never indexed. Medium.
+
 ### Features
 
 - [ ] **Attach a picture of the element to every note.** A note already carries
@@ -390,10 +523,6 @@ are the paths that can quietly break it.
 
 ## Not in this list
 
-Three robustness findings from the same review are deliberately not here,
-because they were not asked for. Say so and they go in: nothing tests the
-window, note delivery is take on read rather than acknowledged, and the app is
-neither signed nor notarised.
-
-The signed-in and signed-out comparison is not here either. It was turned down
-rather than missed.
+Two things were offered and turned down rather than missed: signing and
+notarising the app, and comparing a signed-in and a signed-out render side by
+side.
