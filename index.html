@@ -380,7 +380,22 @@
                     <div class="truncate text-[12px] leading-[15px] font-[590] text-text" x-text="panel.name"></div>
                   </div>
                   <div class="flex items-center gap-1.5">
-                    <div class="truncate font-mono text-[10px] leading-[13px] tracking-[0.02em] text-text-dim" x-text="meta(panel)"></div>
+                    <div
+                      class="truncate font-mono text-[10px] leading-[13px] tracking-[0.02em]"
+                      :class="panel.widthMismatch ? 'text-error' : 'text-text-dim'"
+                      x-text="meta(panel)"
+                    ></div>
+                    <!-- The page disagrees with the label about its own width.
+                         Every measurement taken from this panel is worthless
+                         while that is true, so it is the loudest thing the
+                         label strip can say, and it says the real number
+                         rather than quietly correcting the label. -->
+                    <span
+                      x-show="panel.widthMismatch"
+                      class="shrink-0 rounded-sm bg-error/15 px-1 font-mono text-[10px] leading-[13px] text-error"
+                      :title="`This panel says it is ${Math.round(panel.reportedWidth)}px wide, not ${Math.round(panel.width)}px. Anything measured here is measured at the wrong width. A docked Web Inspector does this, and so does a width changed while a sheet was open.`"
+                      x-text="`is ${Math.round(panel.reportedWidth)}`"
+                    ></span>
                     <!-- What the accessibility checks found at this width.
                          Beside the width rather than in a list somewhere,
                          because the width is the thing the number is about.

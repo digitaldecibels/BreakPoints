@@ -225,6 +225,15 @@ fn ready(app: &AppHandle, state: &Shared, nonce: &str, msg: Ready) {
     // A panel that reports in has rendered, whatever the HTTP status was, so
     // this is the honest moment to call it loaded.
     canvas::set_panel_state(app, state, &msg.panel, PanelState::Loaded);
+
+    // The page has just told us how wide it thinks it is, and that is the one
+    // claim this app cannot afford to get wrong. It used to be forwarded to the
+    // window and dropped. A disagreement here is checked once more before it is
+    // believed, because a first load can report the pre-zoom width.
+    if msg.width > 0.0 && canvas::set_reported_width(app, state, &msg.panel, msg.width) {
+        canvas::confirm_width(app.clone(), state.clone(), msg.panel.clone());
+    }
+
     let _ = app.emit(
         "panel:ready",
         serde_json::json!({

@@ -53,7 +53,7 @@ and should be measured before they are fixed.
 The declared width being exact is the property the whole app rests on. These
 are the paths that can quietly break it.
 
-- [ ] **Check the width instead of assuming it.** Every page already reports
+- [x] **Check the width instead of assuming it.** Every page already reports
   its own `innerWidth` on load, `callback::ready` forwards it to the window as
   `panel:ready`, and nothing anywhere listens to that event. The only code that
   compares it to the declared width is the note formatter, and only after a

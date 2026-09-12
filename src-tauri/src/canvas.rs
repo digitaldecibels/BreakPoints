@@ -59,6 +59,17 @@ pub struct Panel {
     pub height: f64,
     pub state: PanelState,
     pub last_scroll_pct: f64,
+    /// The width the page itself last said it was, or `None` before it has
+    /// said anything.
+    ///
+    /// The declared width being exact is the property this whole app rests on,
+    /// and until now nothing checked it. Every page reports its `innerWidth`
+    /// on load and that number was forwarded to the window and dropped. When
+    /// it disagrees with the declared width, something has gone wrong that is
+    /// invisible otherwise: a docked inspector taking the frame, a layout that
+    /// happened before the zoom landed, or a width changed while the panels
+    /// were hidden and never applied.
+    pub reported_width: Option<f64>,
     /// Whether this webview has ever committed a navigation.
     ///
     /// Until it has, wry queues every `eval` as a bare string and throws the
@@ -133,6 +144,16 @@ pub struct PanelInfo {
     pub on_screen_width: f64,
     pub on_screen_height: f64,
     pub state: PanelState,
+    /// What the page says its viewport is, once it has said anything.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reported_width: Option<f64>,
+    /// True when the page disagrees with the label by more than a pixel.
+    ///
+    /// This is the one claim the app cannot afford to get wrong, so it is
+    /// reported rather than corrected: a panel drawing at a width other than
+    /// the one on its label makes every measurement taken from it worthless,
+    /// and silently fixing the number would hide the cause.
+    pub width_mismatch: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -842,6 +863,7 @@ pub async fn spawn(
             height: place.height,
             state: PanelState::Loading,
             last_scroll_pct: 0.0,
+            reported_width: None,
             ever_committed: false,
         });
 
@@ -1441,6 +1463,71 @@ pub fn set_panels_hidden(app: &AppHandle, state: &Shared, hidden: bool) {
     }
 }
 
+/// How far the page may be from its label before it counts as wrong.
+///
+/// Half a pixel, so a whole pixel out is a finding. That is deliberate and it
+/// is the tightest useful value: the frame is whole pixels and the viewport is
+/// the frame divided by the zoom, so `layout` derives the zoom back from the
+/// rounded frame to make the two agree exactly. When they do not, one pixel is
+/// enough to matter, because a page at 767 does not fire a `min-width: 768px`
+/// query and looks for all the world like the query is broken. That exact bug
+/// is why the layout arithmetic is the way it is, and this is the check that
+/// would have caught it.
+const WIDTH_TOLERANCE: f64 = 0.5;
+
+/// Whether a page's own idea of its width disagrees with the declared one.
+///
+/// A panel that has not reported yet is not a disagreement. Silence and a
+/// wrong answer are different things, and treating the first as the second
+/// would light up every panel for the moment between spawning and loading.
+pub fn width_disagrees(declared: f64, reported: Option<f64>) -> bool {
+    match reported {
+        Some(reported) => (declared - reported).abs() > WIDTH_TOLERANCE,
+        None => false,
+    }
+}
+
+/// Record what a page says its viewport is, and say so if it is wrong.
+///
+/// Called on every load report. The first report can arrive before the zoom
+/// has been applied, so a disagreement is confirmed by measuring again rather
+/// than believed at once: see `confirm_width`.
+pub fn set_reported_width(app: &AppHandle, state: &Shared, id: &str, reported: f64) -> bool {
+    let disagrees = {
+        let mut canvas = state.canvas.lock().unwrap();
+        let Some(panel) = canvas.panels.iter_mut().find(|p| p.viewport.id == id) else {
+            return false;
+        };
+        if panel.reported_width == Some(reported) {
+            return width_disagrees(panel.viewport.width, panel.reported_width);
+        }
+        panel.reported_width = Some(reported);
+        width_disagrees(panel.viewport.width, Some(reported))
+    };
+    emit_canvas(app, state);
+    disagrees
+}
+
+/// Measure a panel's width again, a moment later, and keep the answer.
+///
+/// A first load can genuinely report the wrong width and then be right: the
+/// webview is created at its scaled size and starts loading immediately, and
+/// the zoom is a separate message that lands afterwards. Believing that first
+/// number would mark every panel in a zoomed row as wrong and never clear it.
+/// So a disagreement is checked once more before it is trusted.
+pub fn confirm_width(app: AppHandle, state: Shared, id: String) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        let Ok(value) = crate::tools::eval_js(&state, &id, "return window.innerWidth;").await
+        else {
+            return;
+        };
+        if let Some(width) = value.as_f64() {
+            set_reported_width(&app, &state, &id, width);
+        }
+    });
+}
+
 pub fn set_panel_state(app: &AppHandle, state: &Shared, id: &str, new_state: PanelState) {
     {
         let mut canvas = state.canvas.lock().unwrap();
@@ -1504,6 +1591,8 @@ pub fn info(state: &Shared) -> CanvasInfo {
                 on_screen_width: p.width,
                 on_screen_height: p.height,
                 state: p.state.clone(),
+                reported_width: p.reported_width,
+                width_mismatch: width_disagrees(p.viewport.width, p.reported_width),
             })
             .collect(),
         total_width: canvas.total_width,
@@ -1645,6 +1734,27 @@ mod tests {
         assert_eq!(
             follow.decide("a", "https://s.test/", "https://s.test/", 4, Instant::now()),
             FollowAction::Ignore
+        );
+    }
+
+    /// A page that agrees with its label is not a finding, and a page that
+    /// has not spoken yet is not one either. Only a real disagreement is.
+    #[test]
+    fn a_panel_is_only_wrong_when_the_page_says_so() {
+        assert!(!width_disagrees(768.0, None), "silence is not a disagreement");
+        assert!(!width_disagrees(768.0, Some(768.0)));
+        assert!(
+            !width_disagrees(768.0, Some(767.5)),
+            "half a pixel is the frame rounding, not a bug"
+        );
+        assert!(width_disagrees(768.0, Some(767.0)), "a whole pixel out is wrong");
+        assert!(
+            width_disagrees(1024.0, Some(5120.0)),
+            "a docked inspector gives the panel the whole window"
+        );
+        assert!(
+            width_disagrees(1024.0, Some(512.0)),
+            "a layout that happened before the zoom landed"
         );
     }
 
