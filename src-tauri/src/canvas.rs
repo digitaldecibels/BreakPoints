@@ -290,6 +290,17 @@ pub fn layout(
 }
 
 /// Height left for panels once the chrome has taken its share.
+/// Whether a queued message is somebody moving the row.
+///
+/// The pump speeds up after a gesture because one is usually the start of
+/// several. A console line is not a gesture, and neither is a page load.
+fn is_gesture(message: &serde_json::Value) -> bool {
+    matches!(
+        message.get("path").and_then(|p| p.as_str()),
+        Some("/p/scroll") | Some("/p/wheel")
+    )
+}
+
 /// Remember the window's width, so nothing on a hot path has to ask for it.
 pub fn remember_window_width(app: &AppHandle, state: &Shared) {
     let Some(window) = app.get_window("main") else { return };
@@ -1163,7 +1174,14 @@ pub fn start_pump(app: AppHandle, state: Shared) {
                 let Ok(Ok(serde_json::Value::Array(messages))) = drained else {
                     continue;
                 };
-                if !messages.is_empty() {
+                // Only a gesture keeps the fast rate alive. Anything in the
+                // queue used to, and the injected script captures every
+                // console call, so a page that logs on a timer, a framework's
+                // dev build, or a page that throws repeatedly held the 16ms
+                // rate for the life of the session. That is several times the
+                // intended cost, sustained, in an app whose job is measuring
+                // how a page performs.
+                if messages.iter().any(is_gesture) {
                     last_message = std::time::Instant::now();
                 }
                 for message in messages {
@@ -1999,6 +2017,21 @@ mod tests {
             !load_failed("about:blank", ""),
             "nothing was requested, so nothing failed"
         );
+    }
+
+    /// A page that logs on a timer used to hold the pump at its fastest rate
+    /// for the whole session, because anything in the queue counted as
+    /// activity.
+    #[test]
+    fn only_a_gesture_keeps_the_pump_fast() {
+        let msg = |path: &str| serde_json::json!({ "path": path, "body": {} });
+        assert!(is_gesture(&msg("/p/scroll")));
+        assert!(is_gesture(&msg("/p/wheel")));
+        assert!(!is_gesture(&msg("/p/console")));
+        assert!(!is_gesture(&msg("/p/ready")));
+        assert!(!is_gesture(&msg("/p/report")));
+        assert!(!is_gesture(&msg("/p/nav")));
+        assert!(!is_gesture(&serde_json::json!({})));
     }
 
     /// The row is routinely four times the window's width, so most of what the

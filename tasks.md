@@ -114,7 +114,7 @@ are the paths that can quietly break it.
   ordered per panel, and `dispatch_from` has to keep taking the panel id from
   the caller rather than from the message.
 
-- [ ] **Console noise pins the poll loop at its fastest rate.** Any drained
+- [x] **Console noise pins the poll loop at its fastest rate.** Any drained
   message resets `last_message` (`canvas.rs:1025`), and the injected script
   patches every `console` method, so a page that logs on a timer, a framework
   dev build, or a page that throws repeatedly keeps a message in the queue on
