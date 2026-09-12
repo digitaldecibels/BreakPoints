@@ -172,7 +172,7 @@ are the paths that can quietly break it.
   skips resolution and a static drain script remove all the avoidable work
   around it. Small.
 
-- [ ] **A wheel event parks a worker thread twice.** `nudge_scroll` asks the
+- [x] **A wheel event parks a worker thread twice.** `nudge_scroll` asks the
   window for its scale factor and inner size, and both of those send a message
   to the main thread and then block on an unbounded receive. Called off the
   main thread, which is always, that is two blocking round trips per wheel

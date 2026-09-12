@@ -1065,13 +1065,13 @@ pub fn clamped_scroll(current: f64, dx: f64, total_width: f64, window_width: f64
 /// The scroll strip clamps itself, so `set_scroll` never had to. A wheel has
 /// no strip behind it, so the clamping happens here instead.
 pub fn nudge_scroll(app: &AppHandle, state: &Shared, dx: f64) {
-    let window_width = app
-        .get_window("main")
-        .and_then(|w| {
-            let scale = w.scale_factor().unwrap_or(1.0);
-            w.inner_size().ok().map(|s| s.width as f64 / scale)
-        })
-        .unwrap_or(0.0);
+    // Read, never asked for. Asking the window for its scale and size sends
+    // two messages to the main thread and blocks on each until it answers,
+    // with no timeout. This runs off the main thread on every wheel event, so
+    // during a two-finger pan it was parking a worker twice per event behind a
+    // main thread laying out seven pages, and if that thread was inside a
+    // modal or the Web Inspector it parked indefinitely.
+    let window_width = *state.window_width.lock().unwrap();
 
     // Read both numbers out of the lock before doing anything that locks again.
     let (current, total_width) = {
