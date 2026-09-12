@@ -189,6 +189,160 @@ are the paths that can quietly break it.
   `attach`. Small, and it matters because writing that file is meant to be a
   deliberate act.
 
+### Scanner: wrong or missing widths
+
+- [ ] **A named list of widths loses its names and its status.** `css.rs`
+  correctly pulls a map like `(sm: 576px, md: 768px, lg: 992px)` out of a
+  variable, then hands each entry to `Occurrence::named`, which is an empty
+  function (`css.rs:170`). The names are discarded, so five deliberate,
+  configured breakpoints arrive as five anonymous widths at low confidence.
+  Downstream, `generate.rs` sorts by how many files each appears in, they all
+  tie at one, and the three narrowest are the ones opened as panels while the
+  two that designs actually break at are merely offered. The comment above that
+  function states the intent; the code does the opposite. Small, and it is the
+  most common convention outside Tailwind.
+
+- [ ] **A variable defined in one file and used in fifty resolves nowhere.**
+  `scss_lengths` is built per file, inside the per-file loop, so the universal
+  layout of one variables file plus fifty partials finds nothing: the defining
+  file has no queries, and every user logs "depends on a value this file does
+  not define". The project reports zero CSS breakpoints. Map lookups and the
+  mixins that Bootstrap and every sass-mq derivative are consumed through have
+  the same problem. Two passes over text that is already read: one to collect
+  names and lengths across the whole project, one to resolve. Medium, and it is
+  the structural fix the two items below lean on.
+
+- [ ] **A Tailwind v4 theme in its own file is never opened.** `tailwind.rs:69`
+  skips any file that does not contain the string `tailwindcss`, and the
+  documented v4 pattern is an entry stylesheet that imports both the framework
+  and a separate theme file holding the `--breakpoint-*` block. The theme file
+  never mentions the framework, so it is skipped, and the entry file is then
+  read as declaring nothing, which makes the app report Tailwind's stock five
+  widths as if the project had chosen them. Scan every non-compiled stylesheet
+  for the custom properties and use the marker only to decide the framework
+  label. Small.
+
+  While there: a config with both `theme.screens` and `theme.extend.screens` is
+  valid Tailwind and currently re-adds the five defaults the project deleted,
+  because the extend flag is set from either site.
+
+- [ ] **Two-sided range queries match nothing.** The pattern in `units.rs`
+  handles `(width >= 48rem)` and `(768px <= width)`, but both alternatives
+  require a closing bracket straight after the operand, so
+  `(48rem <= width < 64rem)` matches neither. That is the form the range syntax
+  exists for and what PostCSS Preset Env emits. It is logged as having no width
+  component, which is untrue. Same regex, same size of fix. Small. A width
+  written with `calc()` or a custom property also returns nothing and at least
+  deserves its own log reason, because that line is what a person reads to
+  decide whether the detector is broken.
+
+### Scanner: whole kinds of project missed
+
+- [ ] **Component styles are never read.** `walk.rs` indexes `css`, `scss` and
+  `sass` only. A Nuxt, SvelteKit or Astro project keeps nearly every query in a
+  component's own style block, so those projects find zero widths and fall
+  through to generic device sizes. Extracting style blocks from `.vue`,
+  `.svelte` and `.astro` is medium work and is the biggest miss by number of
+  projects.
+
+- [ ] **Common stylesheet extensions are left out.** `.pcss` and `.postcss` are
+  the convention in PostCSS and Tailwind setups, including a v4 theme file, and
+  `.less` covers a lot of older Drupal and WordPress themes. Small, and it is
+  the same change as above without the extraction.
+
+- [ ] **Commented-out queries count as real ones.** The prelude regex runs over
+  raw text, so a query inside a comment matches and inflates the file count,
+  which is the only confidence signal the CSS side has. `jsobj::blank_comments`
+  already blanks comments while preserving offsets, so this is one line of
+  reuse.
+
+- [ ] **Unminified build output is read as source.** `looks_compiled` needs
+  more than 400 bytes per line, so any build run without minification, which
+  includes a plain Tailwind CLI run, most dev builds and Drupal's own
+  unaggregated output, passes as source. For Tailwind that means generated
+  values are read back as configuration at high confidence; for everything else
+  the compiled file and its source both contribute and every width's confidence
+  doubles. Cheaper tells exist: a framework banner comment, a `--tw-` property,
+  a source map comment, or a `.css` whose stem matches a `.scss` elsewhere in
+  the tree. Medium.
+
+### Scanner: alarms that are not real
+
+- [ ] **A Drupal breakpoint conflicts with itself.** Drupal's own documented
+  form, `all and (min-width: 560px) and (max-width: 850px)`, yields two
+  discoveries with the same label from the same line. `mod.rs` then groups by
+  name, finds two entries called the same thing at different widths, and
+  reports a conflict between a file and itself, while `generate.rs` produces
+  two identically named panels. Skip the conflict when both sides share a
+  source file and source, and disambiguate the second name. Small.
+
+- [ ] **The near-miss conflict window is too wide.** Two widths are called a
+  conflict when the gap is within five percent of the configured one, which at
+  1536 is plus or minus 76 pixels, so a deliberate 1470 used in two files gets
+  flagged. One CSS width can also conflict with two different configured widths
+  and the loop does not dedupe, so a single near miss can produce several
+  cards. Cap it at the smaller of five percent and about 32 pixels, which keeps
+  the case it was written for. Small.
+
+- [ ] **The root font size warning is wrong.** Media Queries Level 4 resolves
+  relative units in a query against the initial font size, never against
+  declarations, so the widespread 62.5% technique does not move any breakpoint.
+  The warning fires on a large share of real projects and tells the user the
+  numbers on screen may be wrong when they are not. Delete it, or reword it for
+  the case it is right about, which is rem lengths elsewhere in the CSS rather
+  than query boundaries. Small, and it matters for trust.
+
+- [ ] **A config the scanner could not read outranks the CSS it could.** When
+  Tailwind's screens cannot be resolved statically, `tailwind.rs` does the
+  right thing and emits the shipped defaults with a warning, but it emits them
+  as `Kind::Framework`. `generate.rs:120` asks only about the kind, so the
+  automatic checks drop to nothing and the project's own widths, measured
+  across nine files each, are left unchecked while five guesses are opened as
+  panels. The confidence value set to record that uncertainty is never read by
+  anything. Give a fallback its own kind and make the framework test mean "a
+  framework whose values we actually read". Medium.
+
+### Scanner: waste, and telling the truth about a scan
+
+- [ ] **Every stylesheet is read twice and charged twice.** `ReadBudget` has no
+  cache, and `tailwind::run` reads every CSS file in full before testing
+  whether it wants it, so the whole corpus is read and billed, then read and
+  billed again by the CSS detector that runs after it. The ten megabyte budget
+  is really five, disk work is doubled, and on a heavy project the CSS detector
+  can be handed a budget already spent, at which point it reports nothing and
+  the log blames files nobody has opened. Memoise by relative path. Small, and
+  it is what makes the cross-file variable pass cost nothing.
+
+  Related: Drupal's aggregated CSS under `web/sites/*/files` is not in the
+  walk's skip list, and `tailwind.rs` does not apply the ignore markers that
+  `css.rs` does, so those files are read in full before being rejected. The
+  gitignore rules cover it only inside a git repository, which a delivered zip
+  or a fresh checkout is not.
+
+- [ ] **A truncated scan looks exactly like a complete one.** `report.truncated`
+  is set correctly, serialised, and read by nothing in the window, so a scan
+  that hit the file cap presents its partial answer with full confidence. The
+  scan row's "files read" is also the count of files the index kept, not the
+  count read, and after a budget stop those two diverge a lot. That line is the
+  one place a person learns how much of their project was looked at. Small.
+
+- [ ] **An answer can be stale on reopen.** The cache key is ten root-level
+  filenames and includes no stylesheet, no `*.breakpoints.yml` and no nested
+  framework config. Edit the file the breakpoints came from while the app is
+  closed, reopen the project, and the previous answer comes back with no sign
+  it is old. The rescan command bypasses the cache and the watcher catches
+  changes while the app is open, so this only bites on reopen and on restore at
+  boot, which is the path meant to be instant. Fold in the modification times
+  of the files the breakpoints actually came from. Small.
+
+- [ ] **Say what was discarded, in the window and not only in the log.** The
+  scan log already records every skip and every discard with a reason, and the
+  sheet shows none of it. Two counts in the empty state, "34 container queries,
+  which are not viewport widths" and "18 queries needed a value defined in
+  another file", turn "No breakpoints found" from a dead end into a bug report.
+  This is the scanner's own explain-what-you-discarded rule applied to the case
+  where it matters most. Small.
+
 ### Features
 
 - [ ] **Attach a picture of the element to every note.** A note already carries
