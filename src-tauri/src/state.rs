@@ -136,6 +136,17 @@ pub struct AppState {
     /// Where injected scripts call home. Set once at startup.
     pub endpoint: OnceLock<Endpoint>,
 
+    /// Panels whose first navigation was reported before the panel itself had
+    /// been added to the row.
+    ///
+    /// `add_child` returns a webview that is already loading, and the `Panel`
+    /// record is pushed after it returns, so the load report can arrive first
+    /// and find nothing to write to. That report is what marks a panel safe to
+    /// ask questions of, and losing it left the panel silent for the whole
+    /// session: no scroll sync, no console capture, and no problem reports.
+    /// Ids land here instead and are claimed by the push.
+    pub committed_early: Mutex<std::collections::HashSet<String>>,
+
     /// Where the queue and the claim are written, so neither is lost when the
     /// app restarts. Set once at startup; nothing is persisted until it is.
     pub reports_file: OnceLock<PathBuf>,

@@ -761,6 +761,10 @@ pub async fn spawn(
 
     // Take the old panels out of the lock before closing them; closing
     // dispatches to the main thread and must not run while the mutex is held.
+    // Ids are reused across rebuilds, so a claim left over from the row being
+    // torn down would mark its replacement committed before it has loaded.
+    state.committed_early.lock().unwrap().clear();
+
     let old: Vec<Panel> = {
         let mut canvas = state.canvas.lock().unwrap();
         canvas.panels.drain(..).collect()
@@ -828,17 +832,16 @@ pub async fn spawn(
             // Off the delegate, so nothing here can re-enter a webview call
             // from inside a webview callback.
             tauri::async_runtime::spawn(async move {
+                // Either phase means this webview has a document, so it is safe
+                // to ask questions of. `Finished` counts as well as `Started`,
+                // because a load can be reported finished without this task
+                // ever having seen it start.
+                mark_committed(&state, &id);
                 if finished {
                     set_panel_state(&app, &state, &id, PanelState::Loaded);
                     rearm_picking(&state, &id);
                     follow_navigation(&app, &state, &id, &url);
                 } else {
-                    {
-                        let mut canvas = state.canvas.lock().unwrap();
-                        if let Some(panel) = canvas.panels.iter_mut().find(|p| p.viewport.id == id) {
-                            panel.ever_committed = true;
-                        }
-                    }
                     set_panel_state(&app, &state, &id, PanelState::Loading);
                 }
             });
@@ -854,6 +857,10 @@ pub async fn spawn(
 
         let _ = webview.set_zoom(place.scale);
 
+        // Claimed before the canvas lock is taken, because `mark_committed`
+        // takes them in the other order.
+        let committed = state.committed_early.lock().unwrap().remove(&vp.id);
+
         state.canvas.lock().unwrap().panels.push(Panel {
             viewport: vp,
             webview,
@@ -864,7 +871,7 @@ pub async fn spawn(
             state: PanelState::Loading,
             last_scroll_pct: 0.0,
             reported_width: None,
-            ever_committed: false,
+            ever_committed: committed,
         });
 
         // Panels sometimes render white when several spawn in the same frame.
@@ -1463,6 +1470,30 @@ pub fn set_panels_hidden(app: &AppHandle, state: &Shared, hidden: bool) {
     }
 }
 
+/// Record that a panel has committed a navigation, so the pump may ask it
+/// questions.
+///
+/// Until a webview commits, wry queues every `eval` as a bare string and
+/// throws the callback away, so asking is worse than not asking: the drain
+/// runs later, empties the page's queue and hands the contents to nobody.
+///
+/// Two things used to go wrong here. Only the `Started` branch set the flag, so
+/// a load that went straight to `Finished` never set it at all. And the lookup
+/// races the push in `spawn`, so a report arriving first found no panel and did
+/// nothing, leaving that panel permanently unasked. Both are why a panel could
+/// silently stop reporting anything for a whole session, which reads as the
+/// Report box being broken.
+pub fn mark_committed(state: &Shared, id: &str) {
+    {
+        let mut canvas = state.canvas.lock().unwrap();
+        if let Some(panel) = canvas.panels.iter_mut().find(|p| p.viewport.id == id) {
+            panel.ever_committed = true;
+            return;
+        }
+    }
+    state.committed_early.lock().unwrap().insert(id.to_string());
+}
+
 /// How far the page may be from its label before it counts as wrong.
 ///
 /// Half a pixel, so a whole pixel out is a finding. That is deliberate and it
@@ -1734,6 +1765,20 @@ mod tests {
         assert_eq!(
             follow.decide("a", "https://s.test/", "https://s.test/", 4, Instant::now()),
             FollowAction::Ignore
+        );
+    }
+
+    /// A load reported before its panel was added to the row used to be
+    /// dropped on the floor, and that panel was then never asked for anything
+    /// again: no scroll sync, no console capture, no problem reports, for the
+    /// whole session.
+    #[test]
+    fn a_commit_reported_before_its_panel_exists_is_kept() {
+        let state: Shared = std::sync::Arc::new(crate::state::AppState::default());
+        mark_committed(&state, "medium-768");
+        assert!(
+            state.committed_early.lock().unwrap().contains("medium-768"),
+            "the report has to survive until the panel is pushed"
         );
     }
 

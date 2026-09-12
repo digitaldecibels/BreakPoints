@@ -8,7 +8,7 @@ Each of these stops something working with nothing on screen to say so. The
 first five were checked against the code by hand; the rest are from the review
 and should be measured before they are fixed.
 
-- [ ] **A panel can stop reporting for the whole session.** `ever_committed` is
+- [x] **A panel can stop reporting for the whole session.** `ever_committed` is
   what tells the pump a panel is safe to ask. It is set only in the `Started`
   branch of `on_page_load` (`canvas.rs:815`), never in `Finished`, and only if
   the panel is already in `canvas.panels`. That lookup races the push that
