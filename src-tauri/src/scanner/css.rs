@@ -131,7 +131,7 @@ fn blank_but_newlines(c: char) -> char {
 }
 
 use super::log::ScanLog;
-use super::types::{BreakpointDiscovery, DetectorOutput, Edge, Kind, ScanWarning};
+use super::types::{BreakpointDiscovery, DetectorOutput, Edge, Kind};
 use super::units::{overrides_root_font_size, parse_length, widths_in_query};
 use super::walk::{FileIndex, ReadBudget};
 
@@ -383,17 +383,24 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
         per_width.len()
     ));
 
+    // No warning, on purpose.
+    //
+    // This used to warn that rem breakpoints might be wrong wherever a project
+    // set the root font size, and the warning was itself wrong. Media Queries
+    // Level 4 resolves relative units in a query against the initial font
+    // size, never against anything a stylesheet declares, so `html {
+    // font-size: 62.5% }` does not move `(min-width: 48rem)`: it stays at 768.
+    // Converting at 16px is correct for every query boundary.
+    //
+    // The 62.5% technique is widespread, so this fired on a large share of real
+    // projects and told people the numbers on screen might be wrong when they
+    // were not, which is the most expensive thing a measuring instrument can
+    // say. It is still worth noting in the log, because it does affect rem
+    // lengths everywhere else in the CSS.
     if let Some((file, value)) = root_override {
-        out.warnings.push(ScanWarning {
-            file: file.clone(),
-            message: format!("Root font size is {value}, so rem breakpoints may be off"),
-            detail: vec![
-                format!("{file} sets the root font size to {value}."),
-                "Break/Points converts rem widths at the CSS default of 16px. Any breakpoint written in rem will be out by the same ratio.".into(),
-                "Widths written in px are unaffected.".into(),
-            ],
-        });
-        log.note(format!("{file} overrides the root font size to {value}"));
+        log.note(format!(
+            "{file} sets the root font size to {value}. Breakpoint widths are unaffected: a media query resolves rem against the initial font size, not against this."
+        ));
     }
 
     out.breakpoints = cluster(per_width.into_values().collect(), log);

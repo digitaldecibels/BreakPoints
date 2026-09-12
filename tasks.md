@@ -383,7 +383,7 @@ are the paths that can quietly break it.
   cards. Cap it at the smaller of five percent and about 32 pixels, which keeps
   the case it was written for. Small.
 
-- [ ] **The root font size warning is wrong.** Media Queries Level 4 resolves
+- [x] **The root font size warning is wrong.** Media Queries Level 4 resolves
   relative units in a query against the initial font size, never against
   declarations, so the widespread 62.5% technique does not move any breakpoint.
   The warning fires on a large share of real projects and tells the user the
