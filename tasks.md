@@ -337,7 +337,7 @@ are the paths that can quietly break it.
 
 ### Scanner: whole kinds of project missed
 
-- [ ] **Component styles are never read.** `walk.rs` indexes `css`, `scss` and
+- [x] **Component styles are never read.** `walk.rs` indexes `css`, `scss` and
   `sass` only. A Nuxt, SvelteKit or Astro project keeps nearly every query in a
   component's own style block, so those projects find zero widths and fall
   through to generic device sizes. Extracting style blocks from `.vue`,

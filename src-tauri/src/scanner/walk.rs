@@ -100,6 +100,11 @@ fn worth_keeping(path: &Path) -> bool {
         // lot of older Drupal and WordPress themes. Leaving them out meant
         // those projects had no stylesheets to read at all.
         Some("css") | Some("scss") | Some("sass") | Some("pcss") | Some("postcss") | Some("less")
+            // Single-file components keep their media queries in a `<style>`
+            // block. A Nuxt, SvelteKit or Astro project has almost nothing
+            // else, so without these it looked like a project with no
+            // breakpoints at all.
+            | Some("vue") | Some("svelte") | Some("astro")
     )
 }
 

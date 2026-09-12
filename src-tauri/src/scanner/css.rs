@@ -17,6 +17,57 @@ use regex::Regex;
 /// `less` is what a lot of older Drupal and WordPress themes are written in.
 pub const STYLESHEETS: &[&str] = &["css", "scss", "sass", "pcss", "postcss", "less"];
 
+/// Formats that keep their styles in a `<style>` block inside something else.
+pub const COMPONENTS: &[&str] = &["vue", "svelte", "astro"];
+
+/// Everything the CSS detector will open.
+pub fn readable_extensions() -> Vec<&'static str> {
+    STYLESHEETS.iter().chain(COMPONENTS.iter()).copied().collect()
+}
+
+/// The CSS out of a single-file component, or the whole text for a plain
+/// stylesheet.
+///
+/// A component's template is markup, not CSS, and feeding it to the media
+/// query parser would be noise at best. Only what is inside `<style>` counts.
+pub fn stylesheet_part(rel: &std::path::Path, text: &str) -> String {
+    let is_component = rel
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|ext| COMPONENTS.contains(&ext))
+        .unwrap_or(false);
+    if !is_component {
+        return text.to_string();
+    }
+
+    // Everything outside a `<style>` block becomes blank lines rather than
+    // being cut out, so a line number in the result is the line number in the
+    // file. A reported line that points at the wrong line is worse than no
+    // line at all: it sends somebody to the wrong place with confidence.
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"(?is)<style[^>]*>(.*?)</style>").unwrap());
+
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0usize;
+    for caps in re.captures_iter(text) {
+        let block = caps.get(1).unwrap();
+        out.extend(text[at..block.start()].chars().map(blank_but_newlines));
+        out.push_str(block.as_str());
+        at = block.end();
+    }
+    out.extend(text[at..].chars().map(blank_but_newlines));
+    out
+}
+
+/// Keep the newlines, drop everything else.
+fn blank_but_newlines(c: char) -> char {
+    if c == '\n' {
+        '\n'
+    } else {
+        ' '
+    }
+}
+
 use super::log::ScanLog;
 use super::types::{BreakpointDiscovery, DetectorOutput, Edge, Kind, ScanWarning};
 use super::units::{overrides_root_font_size, parse_length, widths_in_query};
@@ -74,7 +125,7 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
     let mut project_vars: BTreeMap<String, String> = BTreeMap::new();
     let mut project_maps: BTreeMap<String, f64> = BTreeMap::new();
 
-    for rel in index.by_extension(&STYLESHEETS) {
+    for rel in index.by_extension(&readable_extensions()) {
         let file = rel.to_string_lossy().to_string();
         if IGNORE_MARKERS.iter().any(|m| file.contains(m)) {
             log.skip(&file, "compiled, vendored or minified output");
@@ -90,7 +141,15 @@ pub fn run(index: &FileIndex, budget: &mut ReadBudget, log: &mut ScanLog) -> Det
             log.skip(&file, "scan timeout reached before this file");
             break;
         }
-        let Some(text) = budget.read(index, rel, log) else { continue };
+        let Some(raw) = budget.read(index, rel, log) else { continue };
+        // A component is markup with a `<style>` block in it, so the CSS is
+        // pulled out before anything looks at it. Checking the whole file for
+        // compiled output would reject a component with one long template
+        // line.
+        let text = stylesheet_part(rel, &raw);
+        if text.trim().is_empty() {
+            continue;
+        }
         if looks_compiled(&text) {
             log.skip(&file, "one enormous line, so it is a compiled bundle rather than source");
             continue;
@@ -467,6 +526,30 @@ fn pick_representative(group: &[Occurrence]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A component is markup with a style block in it. Only the block is CSS,
+    /// and a line number has to still mean the line in the file.
+    #[test]
+    fn a_component_gives_up_its_style_block_and_keeps_its_line_numbers() {
+        let vue = "<template>\n  <div>hi</div>\n</template>\n\n<script>\n// @media (min-width: 999px) in a string\n</script>\n\n<style>\n@media (min-width: 760px) {\n  .a { display: flex; }\n}\n</style>\n";
+        let css = stylesheet_part(std::path::Path::new("Card.vue"), vue);
+        assert!(css.contains("min-width: 760px"));
+        assert!(!css.contains("999px"), "the script block is not CSS");
+        assert_eq!(
+            css.lines().count(),
+            vue.lines().count(),
+            "line for line, so a reported line number is the real one"
+        );
+        let media_line = css.lines().position(|l| l.contains("760px")).unwrap();
+        let real_line = vue.lines().position(|l| l.contains("760px")).unwrap();
+        assert_eq!(media_line, real_line);
+    }
+
+    #[test]
+    fn a_plain_stylesheet_is_returned_whole() {
+        let css = "@media (min-width: 900px) { .a { color: red; } }";
+        assert_eq!(stylesheet_part(std::path::Path::new("app.scss"), css), css);
+    }
 
     /// The layout that used to find nothing: one file defines the widths,
     /// every other file uses them, and the defining file has no queries of its
