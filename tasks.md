@@ -107,7 +107,7 @@ are the paths that can quietly break it.
   asking a panel that still has messages queued from before it scrolled away,
   or its queue arrives late rather than never.
 
-- [ ] **One wedged panel delays every panel behind it.** The pump drains panels
+- [x] **One wedged panel delays every panel behind it.** The pump drains panels
   in sequence, each with its own 500ms timeout, so a tick costs the sum of the
   slow ones rather than the slowest. Asking them concurrently bounds a tick at
   one timeout however many panels are open. Medium: the drain has to stay

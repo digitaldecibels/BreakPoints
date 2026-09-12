@@ -1168,19 +1168,32 @@ pub fn start_pump(app: AppHandle, state: Shared) {
                 continue;
             }
 
-            for id in ids {
-                // A panel that has gone away answers immediately with an
-                // error; a wedged one must not stall the whole pump.
-                let drained = tokio::time::timeout(
-                    std::time::Duration::from_millis(500),
-                    crate::tools::eval_js(
-                        &state,
-                        &id,
-                        "return window.__bpDrain ? window.__bpDrain() : [];",
-                    ),
-                )
-                .await;
+            // Asked all at once, not one after another. Each panel used to be
+            // awaited in turn with its own half-second timeout, so a tick cost
+            // the sum of the slow ones rather than the slowest, and one panel
+            // with a busy main thread held up every other panel's scroll sync
+            // and wheel deltas behind it. Seven wedged panels meant a
+            // three-and-a-half second tick and a row that looked frozen.
+            let drains = ids.into_iter().map(|id| {
+                let state = state.clone();
+                async move {
+                    let drained = tokio::time::timeout(
+                        std::time::Duration::from_millis(500),
+                        crate::tools::eval_js(
+                            &state,
+                            &id,
+                            "return window.__bpDrain ? window.__bpDrain() : [];",
+                        ),
+                    )
+                    .await;
+                    (id, drained)
+                }
+            });
 
+            // Dispatched in a fixed order once they are all back, so two
+            // panels answering at the same moment cannot interleave their
+            // messages.
+            for (id, drained) in futures_util::future::join_all(drains).await {
                 let Ok(Ok(serde_json::Value::Array(messages))) = drained else {
                     continue;
                 };
